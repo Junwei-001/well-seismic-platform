@@ -1,0 +1,22 @@
+preprocessing:
+  null_values: [-999.25, -999.0, -9999.0, -99999.0, 999.25]
+  null_tolerance: 1.0e-6
+  depth_duplicate: mean
+  sort_depth: true
+  resample_step: null
+  interpolation: linear
+  maximum_gap_samples: 8
+  hard_range_to_nan: true
+  soft_range_quality_penalty: 0.1
+  resistivity_log10: false
+  curve_conflict_score_margin: 0.08
+  conventional_nine_curves:
+    - {canonical: SP, display: SP, name: 自然电位}
+    - {canonical: GR, display: GR, name: 自然伽马}
+    - {canonical: CAL, display: CALI, name: 井径}
+    - {canonical: DT, display: AC, name: 声波时差}
+    - {canonical: NPHI, display: CNL, name: 补偿中子}
+    - {canonical: RHOB, display: DEN, name: 密度}
+    - {canonical: MSFL, display: MSFL, name: 微球聚焦电阻率}
+    - {canonical: RS, display: LLS, name: 浅侧向电阻率}
+    - {canonical: RT, display: LLD, name: 深侧向电阻率}

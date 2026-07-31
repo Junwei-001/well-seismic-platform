@@ -1,0 +1,123 @@
+curve_knowledge:
+  DEPTH:
+    semantic_name: measured_depth
+    aliases: {exact: [DEPT, DEPTH, MD, INDEX], regex: ["^DEP(TH)?[_0-9]*$"]}
+    dimensions: [length]
+    canonical_unit: m
+    accepted_units: [m, ft]
+    range: {hard_min: -1000, hard_max: 20000}
+  GR:
+    semantic_name: gamma_ray
+    aliases: {exact: [GR, GRC, GAM, GAMMA, GR_1, CGR, SGR, HGR], regex: ["^(C|S|H)?GR[A-Z0-9_]*$"]}
+    descriptions: [gamma, gamma ray, natural gamma, 自然伽马]
+    dimensions: [gamma_ray]
+    canonical_unit: API
+    accepted_units: [API, GAPI]
+    range: {soft_min: 0, soft_max: 250, hard_min: -20, hard_max: 1000}
+  SP:
+    semantic_name: spontaneous_potential
+    aliases: {exact: [SP, SSP, SPONT], regex: ["^(S?SP|SPONT)[_0-9]*$"]}
+    dimensions: [electric_potential]
+    canonical_unit: mV
+    accepted_units: [mV, V]
+    range: {hard_min: -2000, hard_max: 2000}
+  CAL:
+    semantic_name: caliper
+    aliases: {exact: [CAL, CALI, HCAL, CAL_1, CALD, CALX, CALY, C1, C2], regex: ["^(H?CAL|CALI)[A-Z0-9_]*$"]}
+    dimensions: [length]
+    canonical_unit: cm
+    accepted_units: [cm, mm, in]
+    range: {soft_min: 5, soft_max: 50, hard_min: 0, hard_max: 200}
+  DT:
+    semantic_name: compressional_slowness
+    aliases: {exact: [DT, DTC, AC, P_AC, SONIC, DTCO, DTP, DT4P, DT24], regex: ["^(DT|AC|P_AC|SONIC)[A-Z0-9_]*$"]}
+    descriptions: [sonic, acoustic, compressional, slowness, 声波, 时差]
+    dimensions: [slowness]
+    canonical_unit: us/m
+    accepted_units: [us/m, us/ft, µs/m, µs/ft]
+    range: {soft_min: 120, soft_max: 700, hard_min: 30, hard_max: 2000}
+  RHOB:
+    semantic_name: bulk_density
+    aliases: {exact: [RHOB, DEN, DENS, ZDEN, DEN_1, RHOZ, BD, FDC], regex: ["^(RHOB|DEN|ZDEN|RHOZ)[A-Z0-9_]*$"]}
+    descriptions: [bulk density, formation density, 体积密度, 补偿密度]
+    dimensions: [density]
+    canonical_unit: g/cm3
+    accepted_units: [g/cm3, g/cc, kg/m3]
+    range: {soft_min: 1.0, soft_max: 3.5, hard_min: 0.5, hard_max: 5.0}
+  NPHI:
+    semantic_name: neutron_porosity
+    aliases: {exact: [NPHI, CNL, TNPH, CNC, NPH, NPOR, NEUT], regex: ["^(NPHI|CNL|TNPH|NPH|NPOR)[A-Z0-9_]*$"]}
+    dimensions: [fraction]
+    canonical_unit: fraction
+    accepted_units: [fraction, v/v, "%", percent]
+    range: {soft_min: -0.1, soft_max: 0.8, hard_min: -0.5, hard_max: 1.5}
+  POR:
+    semantic_name: porosity
+    aliases: {exact: [POR, PHI, PHIT, PHIE, POR_1], regex: ["^(POR|PHI)[A-Z0-9_]*$"]}
+    dimensions: [fraction]
+    canonical_unit: fraction
+    accepted_units: [fraction, v/v, "%", percent]
+    range: {soft_min: 0, soft_max: 0.6, hard_min: -0.2, hard_max: 1.2}
+  RT:
+    semantic_name: deep_resistivity
+    aliases: {exact: [RT, LLD, ILD, RDEP, HDRS, AT90, AHT90, HRLA5, RD, RESD], regex: ["^(RT|LLD|ILD|RDEP|AT90|HRLA5|RESD)[A-Z0-9_]*$"]}
+    dimensions: [resistivity]
+    canonical_unit: ohm.m
+    accepted_units: [ohm.m, ohm-m, ohmm]
+    range: {soft_min: 0.01, soft_max: 20000, hard_min: 0, hard_max: 1000000}
+  RS:
+    semantic_name: shallow_resistivity
+    aliases: {exact: [LLS, ILM, RS, RMED, AT30, AHT30, HRLA3, RSHAL, RESS], regex: ["^(LLS|ILM|RS|RMED|AT30|HRLA3|RESS)[A-Z0-9_]*$"]}
+    dimensions: [resistivity]
+    canonical_unit: ohm.m
+    accepted_units: [ohm.m, ohm-m, ohmm]
+    range: {hard_min: 0, hard_max: 1000000}
+  MSFL:
+    semantic_name: flushed_zone_resistivity
+    aliases: {exact: [MSFL, RXO, Rxo, RXOZ, SFL, SFLU, MCFL], regex: ["^(MSFL|RXO|RXOZ|SFL|MCFL)[A-Z0-9_]*$"]}
+    dimensions: [resistivity]
+    canonical_unit: ohm.m
+    accepted_units: [ohm.m, ohm-m, ohmm]
+    range: {hard_min: 0, hard_max: 1000000}
+  SW:
+    semantic_name: water_saturation
+    aliases: {exact: [SW, SWT, SW_1], regex: ["^SW[A-Z0-9_]*$"]}
+    dimensions: [fraction]
+    canonical_unit: fraction
+    accepted_units: [fraction, v/v, "%", percent]
+    range: {soft_min: 0, soft_max: 1, hard_min: -0.1, hard_max: 1.2}
+  PIMP:
+    semantic_name: p_impedance
+    aliases: {exact: [PIMP, PP_IMP, AI, P_IMPEDANCE, IMP], regex: ["^(P|PP)?_?IMP[A-Z0-9_]*$"]}
+    dimensions: [impedance]
+    canonical_unit: "(m/s)*(g/cm3)"
+    accepted_units: ["(m/s)*(g/cm3)", "m/s*g/cm3", unknown]
+    range: {hard_min: 0, hard_max: 100000000}
+  SIMP:
+    semantic_name: s_impedance
+    aliases: {exact: [SIMP, SS_IMP, S_IMPEDANCE], regex: ["^(S|SS)_?IMP[A-Z0-9_]*$"]}
+    dimensions: [impedance]
+    canonical_unit: "(m/s)*(g/cm3)"
+    accepted_units: ["(m/s)*(g/cm3)", "m/s*g/cm3", unknown]
+    range: {hard_min: 0, hard_max: 100000000}
+  VP:
+    semantic_name: p_velocity
+    aliases: {exact: [VP, P_VEL, VELP, PVEL], regex: ["^(VP|P_?VEL)[A-Z0-9_]*$"]}
+    dimensions: [velocity]
+    canonical_unit: m/s
+    accepted_units: [m/s, ft/s]
+    range: {soft_min: 500, soft_max: 8000, hard_min: 100, hard_max: 15000}
+  VS:
+    semantic_name: s_velocity
+    aliases: {exact: [VS, S_VEL, VELS, SVEL], regex: ["^(VS|S_?VEL)[A-Z0-9_]*$"]}
+    dimensions: [velocity]
+    canonical_unit: m/s
+    accepted_units: [m/s, ft/s]
+    range: {soft_min: 100, soft_max: 5000, hard_min: 0, hard_max: 10000}
+  TWT:
+    semantic_name: two_way_time
+    aliases: {exact: [TWT, P_TD, TWTT, TIME], regex: ["^(TWT|P_TD)[A-Z0-9_]*$"]}
+    dimensions: [time]
+    canonical_unit: ms
+    accepted_units: [ms, s, unknown, "null"]
+    range: {hard_min: -1000, hard_max: 20000}

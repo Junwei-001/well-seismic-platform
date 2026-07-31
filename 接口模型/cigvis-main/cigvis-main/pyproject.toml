@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cigvis"
+authors = [
+    {name = "Jintao Li", email = "lijintaobt@gmail.com"},
+]
+
+version = "0.3.1"
+
+description = "CIGVis is a tool for geophysical data visualization"
+readme = "README.md"
+license = { text="MIT" }
+requires-python = ">=3.9"
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+keywords = ["visualization", "geophysics", "seismic", "data", "cigvis"]
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "scipy",
+    "scikit-image",
+    "vispy"
+]
+
+[project.optional-dependencies]
+default = ["PySide6"]
+gui = ["PySide6"]
+viser = ["viser"]
+plotly = ["plotly", "pandas"]
+sliceviewer = ["panel", "plotly", "anywidget", "Pillow"]
+all = ["vispy", "PySide6", "viser", "plotly", "pandas", "panel", "anywidget", "Pillow"]
+
+[project.urls]
+Homepage = "https://github.com/JintaoLee-Roger/cigvis"
+documentation = "https://cigvis.readthedocs.io/en/latest/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cigvis*"]
+exclude = ["cigvis.data", "cigvis.examples", "cigvis.docs"]

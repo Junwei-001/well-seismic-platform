@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "well-seismic-pipeline"
+version = "0.3.0"
+description = "Portable well-seismic data preparation, visualization and interpretation platform"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "PyYAML>=6"]
+
+[project.optional-dependencies]
+full = ["pandas>=2", "scipy>=1.10", "xarray>=2023.1"]
+test = ["pytest>=7"]
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+faultseg = ["torch>=2.4"]
+surface-seg = ["torch>=2.1,<3", "transformers==4.37.1", "segyio==1.9.14", "matplotlib>=3.8,<3.9"]
+visualization = ["plotly>=5.24", "trimesh>=4", "tifffile>=2023.7"]
+all = [
+  "pandas>=2",
+  "scipy>=1.10",
+  "xarray>=2023.1",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "torch>=2.4,<3",
+  "transformers==4.37.1",
+  "segyio==1.9.14",
+  "matplotlib>=3.8,<3.9",
+  "plotly>=5.24",
+  "trimesh>=4",
+  "tifffile>=2023.7",
+]
+
+[project.scripts]
+well-seismic = "well_seismic.cli:main"
+well-seismic-web = "well_seismic.api:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

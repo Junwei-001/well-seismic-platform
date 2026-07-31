@@ -1,0 +1,6 @@
+gitpython==3.1.50
+pydata-sphinx-theme==0.17.1
+sphinx==9.1.0
+sphinxcontrib-apidoc==0.6.0
+sphinx-gallery==0.21.0
+myst-parser

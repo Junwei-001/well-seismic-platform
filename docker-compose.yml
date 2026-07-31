@@ -1,0 +1,18 @@
+services:
+  well-seismic:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WELL_SEISMIC_HOST: 0.0.0.0
+      WELL_SEISMIC_PORT: 8000
+    volumes:
+      - ./data:/data:ro
+      - ./model_outputs:/app/model_outputs
+      - ./输出结果:/app/输出结果
+

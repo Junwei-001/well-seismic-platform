@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "faultseg3d-pytorch"
+version = "1.0.0"
+description = "Portable PyTorch FaultSeg3D training, inference, CBVS I/O, and QC tooling"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "torch>=2.4",
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+  "scipy>=1.10",
+  "tifffile>=2023.7",
+  "segyio>=1.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+faultseg-train = "script.train:main"
+faultseg-evaluate = "script.evaluate_model:main"
+faultseg-assess = "script.evaluate_model:main"
+faultseg-calibrate = "script.calibrate_threshold:main"
+faultseg-predict-raw = "script.predict:main"
+faultseg-predict-tiff = "script.predict_tiff:main"
+faultseg-predict-cbvs = "script.predict_cbvs:main"
+faultseg-predict = "script.predict_and_evaluate:main"
+faultseg-filter-sgy = "script.preprocess_sgy:main"
+faultseg-threshold = "script.adjust_threshold:main"
+faultseg-export = "script.export:main"
+faultseg-verify = "script.verify_project:main"
+
+[tool.setuptools]
+packages = ["src", "script"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"

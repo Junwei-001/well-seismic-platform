@@ -1,0 +1,20 @@
+well_schema:
+  fields:
+    well_name: [WELL, WELL_NAME, WELLNAME, UWI, API, 井名]
+    x: [X, XCRD, EASTING, WELLTOPX, SURFACE_X, 井口X]
+    y: [Y, YCRD, NORTHING, WELLTOPY, SURFACE_Y, 井口Y]
+    kb: [KB, EKB, KBELEV, KB_ELEVATION, 补心高]
+    ground_elevation: [GL, ELEV, ELEVATION, GROUND_ELEVATION, 地面海拔]
+    total_depth_md: [TD, TOTAL_DEPTH, COMPLETIONDEPTH, 完钻深度]
+    md: [MD, MEASURED_DEPTH, DEPTH, 测深]
+    tvd: [TVD, VERTICAL_DEPTH, 垂深]
+    tvdss: [TVDSS, SUBSEA_DEPTH, 海拔校正垂深]
+    inclination: [INC, INCL, INCLINATION, DEV, 井斜]
+    azimuth: [AZI, AZIM, AZIMUTH, 方位]
+    x_offset: [X_OFFSET, EASTING_OFFSET, DEPARTURE_EW]
+    y_offset: [Y_OFFSET, NORTHING_OFFSET, DEPARTURE_NS]
+    depth: [DEPTH, TVD, TVDSS, VERTICAL_DEPTH, 深度, 垂深]
+    time: [TIME, TWT, TWTT, P_TD, TWO_WAY_TIME, 时间, 双程时]
+  name_normalization:
+    uppercase: true
+    remove: [" ", "-", "_", "."]

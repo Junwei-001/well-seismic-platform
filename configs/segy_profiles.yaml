@@ -1,0 +1,18 @@
+segy:
+  profiles:
+    standard_3d:
+      inline: [189, 9, 5]
+      crossline: [193, 21, 17]
+      x: [181, 73]
+      y: [185, 77]
+      coordinate_scalar: 71
+      elevation_scalar: 69
+      delay_recording_time: 109
+    legacy_cdp:
+      inline: [9, 5]
+      crossline: [21, 17]
+      x: [73, 181]
+      y: [77, 185]
+  geometry_sample_traces: 2048
+  minimum_geometry_confidence: 0.35
+

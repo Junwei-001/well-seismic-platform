@@ -1,0 +1,16 @@
+fusion:
+  algorithm: confidence_gated
+
+  # 固定曲线顺序可保证训练、验证和比赛推理的特征位置一致。
+  # 留空时由训练样本中的标准曲线名排序生成，并写入state_dict。
+  curve_order: []
+
+  # 稳健标准化的最小尺度，防止常数曲线除零。
+  epsilon: 1.0e-6
+
+  # 可替换实现：
+  # identity          原样透传，便于消融实验
+  # concatenate       直接拼接基线
+  # weighted          仅按对齐置信度加权地震窗
+  # confidence_gated  稳健标准化+掩码+置信度门控（默认）
+  # learnable         通过LearnableFusionAdapter注入PyTorch等可训练模型

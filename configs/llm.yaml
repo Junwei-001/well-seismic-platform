@@ -1,0 +1,19 @@
+llm:
+  # 双重开关：后端必须启用，前端任务也必须主动勾选，才会调用外部模型。
+  enabled: false
+  provider: glm
+  api_mode: chat_completions
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  model: glm-4.7-flash
+  timeout_seconds: 25
+  max_retries: 2
+  max_output_tokens: 900
+  min_confidence: 0.82
+  max_calls_per_task: 24
+  max_context_chars: 6000
+  send_file_names: false
+  use_system_proxy: false
+  audit_decisions: true
+  # 每个任务最多研判6个最先出现的错误/警告，避免大量文件导致外部调用时间不可控。
+  max_issue_recommendations: 6
+  allowed_decisions: [metadata_role, curve_mapping, issue_action]

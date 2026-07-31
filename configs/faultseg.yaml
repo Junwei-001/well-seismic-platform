@@ -1,0 +1,13 @@
+faultseg:
+  model_order: [Z, INLINE, CROSSLINE]
+  tensor_order: [N, C, Z, INLINE, CROSSLINE]
+  channels: 1
+  dtype: float32
+  patch_size: [32, 32, 32]
+  overlap: [8, 8, 8]
+  patch_multiple: 8
+  normalization: patch_zscore
+  invalid_fill: patch_mean
+  profile: field-raw
+  threshold: 0.5
+  checkpoint: 接口模型/faultSeg-main/model/faultseg-best.pt

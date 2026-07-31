@@ -1,0 +1,43 @@
+matching:
+  method: nearest_trace
+  neighbor_traces: 9
+  max_horizontal_distance: 500.0
+  distance_confidence_scale: 100.0
+  min_horizontal_confidence_for_training: 0.35
+  min_vertical_confidence_for_training: 0.55
+  coordinate_reference:
+    verified: false
+    crs: null
+    horizontal_unit: m
+  log_sample_stride: 128
+  seismic_window_samples: 32
+  survey_selection:
+    mode: nearest_3d
+    asset_id: null
+    path_contains: null
+  vertical:
+    preferred: [provided_time_depth, sonic_integrated, constant_velocity, none]
+    constant_velocity: null
+    allow_low_confidence_constant_velocity: false
+    sonic:
+      enabled: true
+      reference_depth_m: 0.0
+      datum_time_ms: 0.0
+      datum_is_explicit: false
+      replacement_velocity_m_s: 2000.0
+      min_velocity_m_s: 500.0
+      max_velocity_m_s: 8000.0
+      max_gap_m: 30.0
+      gardner_coefficient: 0.31
+      gardner_exponent: 0.25
+      wavelet_frequency_hz: 30.0
+      wavelet_duration_ms: 128.0
+      max_reflectivity_gap_ms: 30.0
+      max_static_shift_ms: 120.0
+      min_overlap_samples: 24
+      min_correlation: 0.20
+      training_min_correlation: 0.55
+      allow_estimated_for_training: false
+  patch:
+    inline_radius: 0
+    crossline_radius: 0
