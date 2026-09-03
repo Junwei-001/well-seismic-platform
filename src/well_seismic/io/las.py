@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +7,7 @@ import numpy as np
 
 from ..knowledge import CurveKnowledgeBase, convert_unit
 from ..models import Evidence, WellLog
+from ..well_identity import api12_path_hints, canonical_api12_values
 
 
 def _read_text(path: Path) -> tuple[str, str]:
@@ -83,6 +83,7 @@ def read_las(
     knowledge: CurveKnowledgeBase,
     preprocessing: dict[str, Any] | None = None,
     decision_resolver: Any | None = None,
+    asset_options: dict[str, Any] | None = None,
 ) -> WellLog:
     path = Path(path)
     text, encoding = _read_text(path)
@@ -140,36 +141,62 @@ def read_las(
         definitions.extend((f"CURVE_{i+1}", "", "") for i in range(len(definitions), width))
     definitions = definitions[:width]
 
-    nulls = list((preprocessing or {}).get("null_values", []))
-    null_header = header.get("NULL")
-    if null_header:
-        try:
-            nulls.append(float(str(null_header.value).split()[0]))
-        except ValueError:
-            pass
-    null_tolerance = float((preprocessing or {}).get("null_tolerance", 1e-6))
-    for null in nulls:
-        data[np.isclose(data, null, rtol=0, atol=null_tolerance)] = np.nan
-
-    settings = preprocessing or {}
+    # Resolve the index curve before applying generic null sentinels.  Values
+    # such as +999.25 are conventional curve-null fallbacks, but are also
+    # perfectly valid measured depths.  Only the LAS file's own ``NULL``
+    # declaration is authoritative enough to invalidate the index column.
+    # Generic preprocessing sentinels therefore apply to non-depth curves.
     depth_index = 0
     for index, (name, unit, description) in enumerate(definitions):
         depth_info = knowledge.identify(name, unit, description, data[:, index])
         if depth_info.standard_name == "DEPTH":
             depth_index = index
             break
+
+    configured_nulls = list((preprocessing or {}).get("null_values", []))
+    null_header = header.get("NULL")
+    declared_nulls: list[float] = []
+    if null_header:
+        try:
+            declared_nulls.append(float(str(null_header.value).split()[0]))
+        except ValueError:
+            pass
+    null_tolerance = float((preprocessing or {}).get("null_tolerance", 1e-6))
+    for null in configured_nulls:
+        matches = np.isclose(data, null, rtol=0, atol=null_tolerance)
+        matches[:, depth_index] = False
+        data[matches] = np.nan
+    for null in declared_nulls:
+        data[np.isclose(data, null, rtol=0, atol=null_tolerance)] = np.nan
+
+    settings = preprocessing or {}
     if depth_index != 0:
         order = [depth_index] + [index for index in range(data.shape[1]) if index != depth_index]
         data = data[:, order]
         definitions = [definitions[index] for index in order]
-    normalize_depth_unit = knowledge.identify(
+    depth_info = knowledge.identify(
         definitions[0][0], definitions[0][1], definitions[0][2], data[:, 0]
-    ).original_unit
+    )
+    normalize_depth_unit = depth_info.original_unit
+    depth_unit_alias = None
+    # ``F`` is a common legacy LAS abbreviation for foot on the index/depth
+    # curve (including STRT/STOP/STEP.F exports).  It is intentionally handled
+    # only in depth context: registering F as a global unit alias would also
+    # misclassify Fahrenheit on non-depth curves.
+    if str(normalize_depth_unit).strip().casefold() == "f":
+        normalize_depth_unit = "ft"
+        depth_unit_alias = "F->ft"
     depth_values, depth_converted = convert_unit(data[:, 0], normalize_depth_unit, "m", knowledge.units)
     data[:, 0] = depth_values
     depth = data[:, 0]
     issues: list[str] = []
     processing_steps: list[str] = []
+    if configured_nulls:
+        processing_steps.append(
+            "generic_null_sentinels_scoped_to_non_depth_curves"
+        )
+    if depth_unit_alias is not None:
+        processing_steps.append(f"depth_unit_alias:{depth_unit_alias}")
     if normalize_depth_unit not in ("m", "", "unknown"):
         if depth_converted:
             processing_steps.append(f"depth_unit_converted:{normalize_depth_unit}->m")
@@ -194,6 +221,16 @@ def read_las(
     for index, (name, unit, description) in enumerate(definitions[1:], start=1):
         values = data[:, index]
         info = knowledge.identify(name, unit, description, values)
+        twt_unit_override = str((asset_options or {}).get("twt_unit") or "").strip()
+        if (
+            info.standard_name == "TWT"
+            and info.original_unit in {"", "unknown"}
+            and twt_unit_override.casefold() not in {"", "unknown"}
+        ):
+            info.original_unit = twt_unit_override
+            processing_steps.append(
+                f"explicit_source_unit_override:{name}:{twt_unit_override}"
+            )
         if info.standard_name.startswith("UNKNOWN__") and decision_resolver is not None:
             decision = decision_resolver.resolve_curve(
                 mnemonic=name,
@@ -235,6 +272,45 @@ def read_las(
                     issues.append(
                         f"curve_conflict:{standard}:selected={source_names[0]}:candidates={','.join(source_names)}"
                     )
+    raw_api_identifiers = [
+        header[key].value
+        for key in ("API", "APIN", "APINUMBER", "API_NUMBER", "APIID")
+        if key in header and str(header[key].value or "").strip()
+    ]
+    raw_uwi_identifiers = [
+        header[key].value
+        for key in ("UWI", "UWID")
+        if key in header and str(header[key].value or "").strip()
+    ]
+    identifiers, invalid_identifiers = canonical_api12_values(
+        raw_api_identifiers
+    )
+    uwi_identifiers, ignored_uwi_values = canonical_api12_values(
+        raw_uwi_identifiers
+    )
+    identifiers = sorted(
+        set(identifiers)
+        | set(uwi_identifiers)
+        | set(api12_path_hints(path))
+    )
+    if ignored_uwi_values:
+        processing_steps.append("non_api_uwi_not_used_as_api12_identity")
+    if invalid_identifiers:
+        issues.append(
+            "well_identifier_invalid:" + "|".join(invalid_identifiers)
+        )
+    if len(identifiers) > 1:
+        issues.append(
+            "well_identifier_conflict:" + "|".join(identifiers)
+        )
+    elif identifiers:
+        processing_steps.append(
+            "well_identifier_canonicalized:" + identifiers[0]
+        )
+    # Keep malformed non-empty evidence on the asset so the registry can
+    # quarantine it.  An issue string alone must not allow name fallback to
+    # bypass a conflicting identifier contract.
+    identifiers.extend(invalid_identifiers)
     return WellLog(
         well_name,
         depth,
@@ -246,4 +322,5 @@ def read_las(
         version,
         issues,
         processing_steps,
+        identifiers,
     )

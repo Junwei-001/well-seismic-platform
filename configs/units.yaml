@@ -17,6 +17,12 @@ unit_aliases:
   "KG/M3": kg/m3
   "%": percent
   "V/V": fraction
+  "M3/M3": fraction
+  "M^3/M^3": fraction
+  "M³/M³": fraction
+  "_": unknown
+  "-": unknown
+  "NONE": unknown
   "OHM-M": ohm.m
   "OHMM": ohm.m
   "API": API

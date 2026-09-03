@@ -4,8 +4,8 @@ import type {
   WellLogPreviewCurve,
 } from "../api";
 
-export type PathGroupKey = "seismic" | "logs" | "wells" | "auxiliary";
-export type PreparationScreen = "input" | "pipeline";
+export type PathGroupKey = "seismic" | "survey" | "logs" | "wells" | "timeDepth" | "interpretations" | "auxiliary";
+export type PreparationScreen = "input" | "pipeline" | "fusion";
 export type PredictionTaskKey = string;
 export type ViewKey =
   | "overview"
@@ -14,8 +14,10 @@ export type ViewKey =
   | "samples"
   | "models"
   | "prediction"
+  | "layerpulse"
   | "evaluation"
-  | "settings";
+  | "settings"
+  | "assistant";
 
 export interface PathGroup {
   key: PathGroupKey;
@@ -47,12 +49,12 @@ interface ConventionalCurveGroup {
 }
 
 export const navigation: NavigationItem[] = [
-  { id: "preparation", label: "数据准备", section: "workflow" },
-  { id: "visualization", label: "可视化", section: "workflow" },
-  { id: "prediction", label: "预测解释", section: "workflow" },
-  { id: "evaluation", label: "评估导出", section: "workflow" },
+  { id: "preparation", label: "数据与融合", section: "workflow" },
+  { id: "layerpulse", label: "LayerPulse 多模态融合基础模型", section: "workflow" },
+  { id: "prediction", label: "单任务推理模型（共享井震融合基座）", section: "workflow" },
   { id: "models", label: "模型中心", section: "system" },
-  { id: "settings", label: "配置中心", section: "system" },
+  { id: "settings", label: "平台设置", section: "system" },
+  { id: "assistant", label: "慧眼AI", section: "system" },
 ];
 
 export const navigationIconPaths: Record<ViewKey, string[]> = {
@@ -62,8 +64,10 @@ export const navigationIconPaths: Record<ViewKey, string[]> = {
   samples: ["M6 6h.01", "M18 6h.01", "M12 18h.01", "M6.5 6.5 11 0", "m7 7 4 9", "m17 7-4 9"],
   models: ["M9 3v3", "M15 3v3", "M9 18v3", "M15 18v3", "M3 9h3", "M3 15h3", "M18 9h3", "M18 15h3", "M7 6h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"],
   prediction: ["M4 19V5", "M4 19h16", "m7 15 4-5 3 3 5-7"],
+  layerpulse: ["M4 15c3-5 5-7 8-7s5 2 8 7", "M4 19c3-5 5-7 8-7s5 2 8 7", "M12 4v16", "M8 5.5 12 0"],
   evaluation: ["M7 3h8l4 4v14H7z", "M15 3v5h5", "m10 14 2 2 4-5"],
   settings: ["M4 7h10", "M18 7h2", "M4 17h2", "M10 17h10", "M14 4v6", "M7 14v6"],
+  assistant: ["M3 12s3.4-6 9-6 9 6 9 6-3.4 6-9 6-9-6-9-6Z", "M9 12a3 3 0 1 0 6 0 3 3 0 0 0-6 0Z", "M5 12h3l1.2-2.5 1.6 5 1.7-7 1.5 5.5 1.2-2H19"],
 };
 
 export const conventionalCurveGroups: ConventionalCurveGroup[] = [
@@ -143,97 +147,202 @@ export function conventionalCoverage(log: WellLogPreview): string {
 
 export const viewMeta: Record<ViewKey, { eyebrow: string; title: string; description: string }> = {
   overview: {
-    eyebrow: "地层慧眼 · 项目工作台",
-    title: "油气甜点智能识别的地震—测井多模态统一表征大模型",
-    description: "统一组织地震、测井和井轨迹表征，为油气甜点、有利储层与有利目标识别提供可解释的数据和模型基座。",
+    eyebrow: "地层慧眼",
+    title: "井震一体化智能解释平台",
+    description: "从数据整理、井震融合到预测解释，在一个本地工作区完成。",
   },
   preparation: {
-    eyebrow: "数据阶段 01",
-    title: "数据准备与预处理",
-    description: "在一个模块内完成路径登记、曲线清洗、井实体合并、轨迹对齐和地震几何检查。",
+    eyebrow: "数据与融合",
+    title: "数据准备与井震精细标定",
+    description: "登记工区数据，完成校验、标定与融合视图。",
   },
   visualization: {
-    eyebrow: "数据阶段 02",
-    title: "CIGVis 地震解释工作台",
-    description: "以 CIGVis 统一呈现三维地震、二维测线与井轨迹，测井曲线保留独立精细工作台。",
+    eyebrow: "单任务推理模型（共享井震融合基座）",
+    title: "单任务推理模型（共享井震融合基座）",
+    description: "旧可视化入口已并入单任务推理工作台。",
   },
   samples: {
-    eyebrow: "数据阶段 03",
-    title: "井震空间对齐与样本构建",
-    description: "独立运行可替换的空间对齐器，输出带掩码、置信度和来源记录的多模态样本。",
+    eyebrow: "数据与融合",
+    title: "数据准备与井震精细标定",
+    description: "旧井震标定入口已并入数据工作台。",
   },
   models: {
-    eyebrow: "模型阶段 04",
-    title: "模型与井震融合中心",
-    description: "统一管理地震模型、测井编码、对齐模块、融合策略和下游解释运行器。",
+    eyebrow: "LayerPulse 模型中心",
+    title: "参数与架构图谱",
+    description: "查看单 checkpoint 多任务基础模型的参数规模、共享表征与 11 个输出头。",
   },
   prediction: {
-    eyebrow: "解释阶段 05",
-    title: "下游预测与地质解释",
-    description: "按任务契约接入断层、地层分割、层位、沉积相、裂缝、储层和有利目标模型。",
+    eyebrow: "单任务推理模型（共享井震融合基座）",
+    title: "单任务推理模型（共享井震融合基座）",
+    description: "从二级目录选择任务，左侧配置推理，右侧联动查看数据与结果。",
+  },
+  layerpulse: {
+    eyebrow: "LayerPulse 智能解释",
+    title: "LayerPulse 多模态融合基础模型",
+    description: "以相对地质时间为坐标、以构造连通域为传播拓扑、以井曲线为高分辨率语义锚点。",
   },
   evaluation: {
-    eyebrow: "交付阶段 06",
-    title: "评估、对比与结果导出",
-    description: "集中管理样本、模型、预测结果、评价指标、版本与可追溯输出。",
+    eyebrow: "成果交付",
+    title: "验收与导出",
+    description: "核对结果状态并下载可追溯成果。",
   },
   settings: {
-    eyebrow: "系统能力",
-    title: "知识映射、算法与智能判断配置",
-    description: "曲线、单位、井字段、SEG-Y版本、清洗、对齐、融合和LLM兜底策略均可独立维护。",
+    eyebrow: "平台设置",
+    title: "能力与配置",
+    description: "管理本地算法、知识映射与缓存。",
+  },
+  assistant: {
+    eyebrow: "慧眼AI",
+    title: "井震智能研判助手",
+    description: "围绕当前工作区、任务状态和质量证据进行连续对话。",
   },
 };
 
 export function createDefaultPathGroups(): PathGroup[] {
   return [
-    { key: "seismic", title: "地震数据", hint: "SEG-Y文件或包含二维/三维地震数据的一个或多个目录", paths: [""] },
-    { key: "logs", title: "测井数据", hint: "LAS文件或目录；支持不同版本、曲线命名和单位", paths: [""] },
-    { key: "wells", title: "井位、海拔与井轨迹", hint: "可分文件、合并表、每井单文件或多井总表", optional: true, paths: [""] },
-    { key: "auxiliary", title: "其他辅助数据", hint: "标签、解释成果或说明文件；不参与基础匹配", optional: true, paths: [] },
+    { key: "seismic", title: "地震数据", hint: "SEG-Y 文件或目录；大文件保持原位", paths: [""] },
+    { key: "survey", title: "测区坐标", hint: "坐标和 Inline/Crossline 映射", optional: true, paths: [] },
+    { key: "logs", title: "测井数据", hint: "LAS 文件或目录", paths: [""] },
+    { key: "wells", title: "井位与轨迹", hint: "井口、海拔与 DEV 轨迹", optional: true, paths: [""] },
+    { key: "timeDepth", title: "时深 / Checkshot / VSP", hint: "可选；提供后优先作为井震标定控制", optional: true, paths: [] },
+    { key: "interpretations", title: "解释成果", hint: "层位、断层、岩性或沉积相", optional: true, paths: [] },
+    { key: "auxiliary", title: "辅助文件", hint: "测区坐标等；合同、配置或索引", optional: true, paths: [] },
   ];
+}
+
+export const primaryPredictionTaskIds = [
+  "fault",
+  "horizon",
+  "well_property",
+  "fluid_interpretation",
+  "facies_1d",
+  "facies_3d",
+  "fracture_development",
+] as const;
+
+export function isPrimaryPredictionTaskId(
+  id: string,
+): id is (typeof primaryPredictionTaskIds)[number] {
+  return (primaryPredictionTaskIds as readonly string[]).includes(id);
+}
+
+const primaryPredictionTaskLabels: Record<(typeof primaryPredictionTaskIds)[number], string> = {
+  fault: "断层识别",
+  horizon: "层位识别",
+  well_property: "储层物性预测",
+  fluid_interpretation: "流体解释",
+  facies_1d: "一维地震相分类",
+  facies_3d: "三维地震相分割",
+  fracture_development: "井侧裂缝发育排序",
+};
+
+const wellPropertyCompletionModelIds = new Set([
+  "wellfuse_den_p18",
+  "wellfuse_por_p18",
+  "wellfuse_log_perm_p18",
+  "wellfuse_sw_p18",
+  "wellfuse_vsh_p18",
+]);
+
+/**
+ * The public reservoir-property runner exposes whole-well prediction models.
+ * Older curve-completion releases remain available for archived-result
+ * reproducibility, but must not reappear in the task's new-run selector.
+ */
+export function isWellPropertyCompletionModelId(modelId: string | undefined): boolean {
+  return Boolean(modelId && wellPropertyCompletionModelIds.has(modelId));
+}
+
+function predictionOnlyWellPropertyTask(
+  task: PredictionTaskCapability,
+): PredictionTaskCapability {
+  const modelIds = task.model_ids.filter((modelId) => !isWellPropertyCompletionModelId(modelId));
+  const runnableModelIds = task.runnable_model_ids.filter(
+    (modelId) => !isWellPropertyCompletionModelId(modelId),
+  );
+  return {
+    ...task,
+    model_ids: modelIds,
+    runnable_model_ids: runnableModelIds,
+    model_id: isWellPropertyCompletionModelId(task.model_id)
+      ? runnableModelIds[0]
+      : task.model_id,
+    available: runnableModelIds.length > 0,
+  };
+}
+
+const horizonSegmentationPresentation = {
+  description: "对 SEG-Y 地震剖面进行逐像素地层实例分割，输出地层标签体、置信度和标准 SEG-Y 成果。",
+  outputs: ["地层实例标签体", "分割置信度体", "标签 SEG-Y"],
+  output: "地层实例标签体 / 分割置信度体 / 标签 SEG-Y",
+  evaluation_metrics: ["mIoU", "Macro-F1", "边界连续性"],
+};
+
+const horizonSegmentationRuntime = {
+  model_id: "seismic_surface_seg",
+  model_ids: ["seismic_surface_seg"],
+  runnable_model_ids: ["seismic_surface_seg"],
+  available: true,
+  status: "可运行",
+};
+
+export function primaryPredictionTasks(
+  tasks: PredictionTaskCapability[],
+): PredictionTaskCapability[] {
+  const source = new Map(tasks.map((task) => [task.id, task]));
+  return primaryPredictionTaskIds.flatMap((id) => {
+    const task = source.get(id);
+    if (!task || task.active === false) return [];
+    const label = primaryPredictionTaskLabels[id];
+    const publicTask = id === "well_property"
+      ? predictionOnlyWellPropertyTask(task)
+      : task;
+    return [{
+      ...publicTask,
+      ...(id === "horizon" ? {
+        ...horizonSegmentationPresentation,
+        ...horizonSegmentationRuntime,
+      } : {}),
+      name: label,
+      short_name: label,
+    }];
+  });
 }
 
 export const fallbackInterpretationTasks: PredictionTaskCapability[] = [
   {
     id: "fault",
     name: "断层识别",
-    short_name: "断层分割",
-    description: "识别断层概率体、断层面与二值分割结果。",
-    outputs: ["断层概率体", "断层分割体"],
-    output: "断层概率体 / 断层分割体",
+    short_name: "断层识别",
+    description: "默认预测工区三轴中心的单个 128³ 完整块；也可选择耗时较长的全区重叠滑窗连续重建。",
+    outputs: ["中心单块预测", "可选全区断层概率体", "确定性断层掩码与空间切片"],
+    output: "中心单块结果 / 可选全区概率体 / 确定性掩码",
     required_modalities: ["三维地震"],
     evaluation_metrics: ["Dice", "IoU", "连通性"],
     order: 10,
     contract_version: "1.0",
     model_id: "faultseg_3d",
-    model_ids: ["faultseg_3d"],
-    runnable_model_ids: ["faultseg_3d"],
+    model_ids: ["faultseg_3d", "faultnet_china_field"],
+    runnable_model_ids: ["faultseg_3d", "faultnet_china_field"],
     available: true,
     status: "可运行",
   },
   {
-    id: "strata",
-    name: "地层分割",
-    short_name: "地层分割",
-    description: "逐 Inline 识别有序地层实例，输出标签体、置信度体和彩色剖面。",
-    outputs: ["地层实例标签体", "分割置信度体", "彩色剖面"],
-    output: "地层实例标签体 / 分割置信度体 / 彩色剖面",
-    required_modalities: ["规则三维后叠加地震"],
-    evaluation_metrics: ["mIoU", "边界误差", "跨线连续性"],
+    id: "horizon",
+    name: "层位识别",
+    short_name: "层位识别",
+    ...horizonSegmentationPresentation,
+    ...horizonSegmentationRuntime,
+    required_modalities: ["二维或三维地震"],
     order: 20,
     contract_version: "1.0",
-    model_id: "seismic_surface_seg",
-    model_ids: ["seismic_surface_seg"],
-    runnable_model_ids: ["seismic_surface_seg"],
-    available: true,
-    status: "可运行",
   },
   ...[
-    ["horizon", "层位追踪", "层位面与拾取置信度"],
-    ["facies", "沉积相预测", "沉积相分类与概率体"],
-    ["fracture", "裂缝识别", "裂缝概率体与优势方位"],
-    ["reservoir", "有利储层", "储层概率与品质表征"],
-    ["target", "有利目标", "目标区概率与候选连通体"],
+    ["well_property", "储层物性预测", "孔隙度、渗透率、水饱和度、泥质含量和密度预测"],
+    ["fluid_interpretation", "流体解释", "干层、水层、油层、气层与混合层解释结论"],
+    ["facies_1d", "一维地震相分类", "沿井深输出确定相序列与连续相层段"],
+    ["facies_3d", "三维地震相分割", "输出三维离散相体与分类切片"],
+    ["fracture_development", "井侧裂缝发育排序", "沿井深输出低/中/高相对发育连续深度段；不是三维地震裂缝体分割"],
   ].map(([id, name, description], index) => ({
     id,
     name,

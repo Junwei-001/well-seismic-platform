@@ -7,6 +7,8 @@ from typing import Any, Callable, Iterable
 
 import numpy as np
 
+from .platform_mode import interface_only_enabled
+
 
 class WellSeismicFusion(ABC):
     def fit(self, samples: Iterable[dict[str, Any]], labels: Any = None) -> "WellSeismicFusion":
@@ -221,6 +223,8 @@ class FusionRegistry:
 
     def load_entry_points(self) -> list[str]:
         """Load callbacks declared as ``register(fusion_registry)``."""
+        if interface_only_enabled():
+            return []
         loaded: list[str] = []
         for entry_point in entry_points(group=self.entry_point_group):
             try:

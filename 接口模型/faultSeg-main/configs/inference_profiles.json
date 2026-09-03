@@ -2,22 +2,22 @@
   "schema_version": 1,
   "profiles": {
     "synthetic": {
-      "checkpoint": "model/faultseg-best.pt",
+      "checkpoint": null,
       "threshold": 0.5,
       "threshold_grid": [0.3, 0.5, 0.7, 0.9],
       "description": "Synthetic FaultSeg3D-style volumes; highest synthetic validation Dice."
     },
     "field-raw": {
-      "checkpoint": "model/faultseg-best.pt",
+      "checkpoint": null,
       "threshold": 0.5,
       "threshold_grid": [0.3, 0.5, 0.7, 0.9],
-      "description": "Raw field seismic using the bundled project checkpoint. Survey-specific threshold calibration is recommended."
+      "description": "Raw field seismic profile; checkpoint is supplied by an external extension."
     },
     "fault-enhanced": {
-      "checkpoint": "model/faultseg-best.pt",
+      "checkpoint": null,
       "threshold": 0.98,
       "threshold_grid": [0.9, 0.95, 0.98, 0.99],
-      "description": "Fault-enhanced seismic using the bundled project checkpoint; 0.98 is an exploratory F3 threshold."
+      "description": "Fault-enhanced seismic profile; checkpoint is supplied by an external extension."
     }
   }
 }

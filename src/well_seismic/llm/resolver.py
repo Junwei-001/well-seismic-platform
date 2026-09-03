@@ -9,6 +9,7 @@ import numpy as np
 
 from .contracts import LLMDecision, LLMDecisionRequest, LLMProvider
 from .providers import OpenAICompatibleChatProvider, OpenAIResponsesProvider
+from .parse_repair import TRAJECTORY_PARSE_PATCH_SCHEMA
 from .settings import LLMSettings, load_llm_settings
 
 
@@ -21,6 +22,7 @@ class DecisionResolver:
         self.requested = requested
         self.records: list[dict[str, Any]] = []
         self._cache: dict[str, LLMDecision] = {}
+        self._structured_cache: dict[str, tuple[dict[str, Any], dict[str, str]]] = {}
         self._calls = 0
 
     @property
@@ -140,10 +142,10 @@ class DecisionResolver:
         issue: dict[str, Any],
         candidates: list[str],
     ) -> LLMDecision | None:
-        """从代码给定的安全处理方案中推荐一项，不执行任何数据修改。"""
+        """Select one bounded autofill action; callers validate it before applying."""
         return self.resolve(
             "issue_action",
-            "根据问题证据，从安全候选方案中推荐最稳妥的一项。只做建议，等待人工确认。",
+            "根据问题证据选择最稳妥的结构化补全方案。不得虚构坐标系、datum或单位；证据充分时由规则校验后自动应用。",
             candidates,
             {
                 "stage": issue.get("stage"),
@@ -154,6 +156,155 @@ class DecisionResolver:
                 "source_type": Path(str(issue.get("source", ""))).suffix.lower() or "workflow",
             },
         )
+
+    def resolve_file_role(
+        self,
+        *,
+        path: Path,
+        root: Path,
+        suffix: str,
+        size: int,
+        header_tokens: list[str],
+        rule_category: str,
+        rule_reason: str,
+    ) -> LLMDecision | None:
+        """Classify one ambiguous local file within a fixed, auditable role list."""
+        evidence: dict[str, Any] = {
+            "suffix": suffix,
+            "size_bytes": int(size),
+            "header_fields": header_tokens[:40],
+            "rule_candidate": rule_category,
+            "rule_reason": rule_reason,
+        }
+        if self.settings.send_file_names:
+            evidence["relative_path"] = str(path.relative_to(root)).replace("\\", "/")
+        return self.resolve(
+            "input_file_role",
+            "判断本地数据文件最可能的数据角色；证据不足时必须选择待人工分类。",
+            [
+                "地震数据",
+                "测区网格与坐标",
+                "测井曲线",
+                "井位、海拔与井轨迹",
+                "解释成果与标签",
+                "其他辅助数据",
+                "待人工分类",
+            ],
+            evidence,
+        )
+
+    def resolve_trajectory_parse_patch(
+        self,
+        *,
+        original_error: str,
+        evidence: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, str]] | None:
+        """Request one schema-bound parser patch, never code or file actions.
+
+        ``issue_action`` remains the feature-policy gate so existing deployments
+        do not gain a new external-call category merely by upgrading.  The
+        returned JSON is still untrusted and must pass ``parse_repair``'s local
+        allow-list plus a fresh parser/physics validation before use.
+        """
+
+        if (
+            not self.enabled
+            or "issue_action" not in self.settings.allowed_decisions
+            or self._calls >= self.settings.max_calls_per_task
+        ):
+            return None
+        generator = getattr(self.provider, "generate_json", None)
+        if not callable(generator):
+            return None
+        compact = self._compact(evidence)
+        digest = hashlib.sha256(
+            json.dumps(
+                ["trajectory_parse_patch", str(original_error)[:500], compact],
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        cached = self._structured_cache.get(digest)
+        if cached is not None:
+            return cached
+        self._calls += 1
+        try:
+            proposal, metadata = generator(
+                system_prompt=(
+                    "你是井轨迹文本解析补丁生成器。只能返回给定JSON Schema中的字段；"
+                    "只允许选择分隔符、已有列的索引以及来源长度单位m/ft。"
+                    "不得输出代码、命令、路径、文件操作、网络操作、井名、坐标值、深度值或默认零；"
+                    "不得补造TVDSS基准或符号。证据不足的单位必须返回unknown。"
+                    "原文件将保持只读，补丁会在内存重解析并经过确定性物理门校验。"
+                ),
+                payload={
+                    "asset_role": "trajectory",
+                    "original_error": str(original_error)[:500],
+                    "structural_evidence": compact,
+                    "allowed_patch_surface": ["delimiter", "columns", "field_units"],
+                    "unknown_policy": "return_unknown_never_zero",
+                },
+                schema_name="well_seismic_trajectory_parse_patch",
+                schema=TRAJECTORY_PARSE_PATCH_SCHEMA,
+            )
+            if not isinstance(proposal, dict):
+                raise TypeError("structured parse patch is not a JSON object")
+            metadata = {
+                "provider": str(metadata.get("provider") or ""),
+                "model": str(metadata.get("model") or ""),
+                "request_id": str(metadata.get("request_id") or ""),
+                "source_hash": digest,
+            }
+            result = (proposal, metadata)
+            self._structured_cache[digest] = result
+            if self.settings.audit_decisions:
+                confidence = proposal.get("confidence", 0.0)
+                try:
+                    confidence = float(confidence)
+                except (TypeError, ValueError):
+                    confidence = 0.0
+                self.records.append(
+                    {
+                        "判断类型": "trajectory_parse_patch",
+                        "选择": "结构化解析补丁",
+                        "置信度": round(confidence, 4),
+                        "是否采纳": False,
+                        "理由摘要": str(proposal.get("reason") or "")[:500],
+                        "提供方": metadata["provider"],
+                        "模型": metadata["model"],
+                        "请求ID": metadata["request_id"],
+                        "来源摘要": digest,
+                        "警告": [
+                            str(item)[:200]
+                            for item in (
+                                proposal.get("warnings")
+                                if isinstance(proposal.get("warnings"), list)
+                                else []
+                            )[:8]
+                        ],
+                        "验证状态": "等待本地格式与物理门",
+                    }
+                )
+            return result
+        except Exception as exc:
+            if self.settings.audit_decisions:
+                self.records.append(
+                    {
+                        "判断类型": "trajectory_parse_patch",
+                        "选择": "",
+                        "置信度": 0.0,
+                        "是否采纳": False,
+                        "理由摘要": "结构化补丁生成失败，原读取错误保持不变",
+                        "提供方": self.settings.provider,
+                        "模型": self.settings.model,
+                        "请求ID": "",
+                        "来源摘要": digest,
+                        "警告": [str(exc)[:300]],
+                        "验证状态": "生成失败",
+                    }
+                )
+            return None
 
     def _compact(self, evidence: dict[str, Any]) -> dict[str, Any]:
         serialized = json.dumps(evidence, ensure_ascii=False, default=str)
@@ -174,7 +325,7 @@ def build_decision_resolver(
     settings = load_llm_settings(config)
     active_provider = provider
     if active_provider is None and requested and settings.available:
-        if settings.provider not in {"glm", "openai", "openai_compatible"}:
+        if settings.provider not in {"kimi", "glm", "openai", "openai_compatible"}:
             raise ValueError(f"暂不支持的LLM提供方：{settings.provider}")
         if settings.api_mode == "responses":
             active_provider = OpenAIResponsesProvider(settings)

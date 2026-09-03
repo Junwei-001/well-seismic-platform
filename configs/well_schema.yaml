@@ -1,20 +1,36 @@
 well_schema:
   fields:
-    well_name: [WELL, WELL_NAME, WELLNAME, UWI, API, 井名]
-    x: [X, XCRD, EASTING, WELLTOPX, SURFACE_X, 井口X]
-    y: [Y, YCRD, NORTHING, WELLTOPY, SURFACE_Y, 井口Y]
-    kb: [KB, EKB, KBELEV, KB_ELEVATION, 补心高]
-    ground_elevation: [GL, ELEV, ELEVATION, GROUND_ELEVATION, 地面海拔]
-    total_depth_md: [TD, TOTAL_DEPTH, COMPLETIONDEPTH, 完钻深度]
-    md: [MD, MEASURED_DEPTH, DEPTH, 测深]
-    tvd: [TVD, VERTICAL_DEPTH, 垂深]
-    tvdss: [TVDSS, SUBSEA_DEPTH, 海拔校正垂深]
-    inclination: [INC, INCL, INCLINATION, DEV, 井斜]
-    azimuth: [AZI, AZIM, AZIMUTH, 方位]
-    x_offset: [X_OFFSET, EASTING_OFFSET, DEPARTURE_EW]
-    y_offset: [Y_OFFSET, NORTHING_OFFSET, DEPARTURE_NS]
-    depth: [DEPTH, TVD, TVDSS, VERTICAL_DEPTH, 深度, 垂深]
-    time: [TIME, TWT, TWTT, P_TD, TWO_WAY_TIME, 时间, 双程时]
+    well_name: [WELL_NUMBER, COMMON_WELL_NAME, WELL, WELL_ID, WELLID, WELL_NAME, WELLNAME, UWI, UWID, 井名, 井号, 井名称]
+    # A US API number is an independent identity contract, not a display-name
+    # alias. UWI remains a name alias because non-US datasets legitimately use
+    # non-API UWI values; numeric API-shaped LAS UWI headers are handled by the
+    # LAS reader itself.
+    well_identifier: [WELL_API, API, API_NUMBER, APIID, APINUMBER, APIN]
+    x: [X, X_COORD, X_COORDINATE, XCRD, EASTING, WELLHEAD_X, WELL_HEAD_X, WELLTOPX, SURFACE_X, X坐标, 东坐标, 井口X, 井口X坐标]
+    y: [Y, Y_COORD, Y_COORDINATE, YCRD, NORTHING, WELLHEAD_Y, WELL_HEAD_Y, WELLTOPY, SURFACE_Y, Y坐标, 北坐标, 井口Y, 井口Y坐标]
+    kb: [KB, EKB, KBELEV, KB_ELEVATION, KB_ELEVATION_MSL, WELL_DATUM, DATUM_ELEVATION, 补心高, 补心高程, KB高程]
+    # ELEV/ELEVATION语义不唯一，不能在没有GL/ground限定时自动当作地面高程。
+    ground_elevation: [GL, GLEV, GROUND_ELEVATION, GROUND_LEVEL, 地面海拔, 地面高程, 地面标高]
+    srd_elevation: [SRD, SRD_ELEVATION, SEISMIC_DATUM, PROCESSING_DATUM, 地震处理基准面高程]
+    vertical_datum_unit: [DATUM_UNIT, ELEVATION_UNIT, VERTICAL_UNIT, 高程单位]
+    vertical_datum_type: [DATUM_TYPE, ELEVATION_DATUM_TYPE, 高程基准类型]
+    time_reference: [TIME_REFERENCE, TIME_DATUM, TWT_DATUM, 时间基准]
+    time_domain: [TIME_DOMAIN, TWT_OWT, 时间域]
+    correction_state: [CORRECTION_STATE, DATUM_CORRECTION, 静校正状态]
+    replacement_velocity: [REPLACEMENT_VELOCITY, DATUM_VELOCITY, 替换速度]
+    total_depth_md: [TD, TOTAL_DEPTH, TOTAL_DEPTH_MD, COMPLETION_DEPTH, COMPLETIONDEPTH, 完钻井深, 完钻深度, 总井深, 终孔深度]
+    md: [MD, MD_M, MEASURED_DEPTH, MEASUREDDEPTH, DEPTH, 测深, 测量井深, 斜深]
+    tvd: [TVD, TRUE_VERTICAL_DEPTH, VERTICAL_DEPTH, 垂深, 真垂深, 垂直井深]
+    tvdss: [TVDSS, TVD_SS, SUBSEA_DEPTH, 海拔校正垂深, 海平面以下垂深]
+    inclination: [INC, INCL, INCLINATION, DEVIATION, DEV, 井斜, 井斜角, 井斜角度]
+    azimuth: [AZI, AZIM, AZIMUTH, BEARING, 方位, 方位角, 井斜方位角]
+    x_offset: [DX, DELTA_X, X_OFFSET, XOFFSET, EASTING_OFFSET, DEPARTURE_EW, X偏移量, 东偏移量, 东西位移]
+    y_offset: [DY, DELTA_Y, Y_OFFSET, YOFFSET, NORTHING_OFFSET, DEPARTURE_NS, Y偏移量, 北偏移量, 南北位移]
+    # A time-depth table commonly names its physical axis MD.  Keep the
+    # dedicated md field and also map the same column as the generic depth
+    # field so adaptive metadata can prove (rather than guess) the domain.
+    depth: [MD, MD_M, MEASURED_DEPTH, MEASUREDDEPTH, DEPTH, TVD, TVDSS, TVD_SS, TRUE_VERTICAL_DEPTH, VERTICAL_DEPTH, SUBSEA_DEPTH, 测深, 测量井深, 斜深, 深度, 垂深, 真垂深, 垂直井深, 海拔校正垂深, 海平面以下垂深]
+    time: [TIME, TWT, TWT_MS, TWTT, P_TD, TWO_WAY_TIME, 时间, 双程时]
   name_normalization:
     uppercase: true
     remove: [" ", "-", "_", "."]

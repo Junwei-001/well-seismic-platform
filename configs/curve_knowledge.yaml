@@ -23,14 +23,14 @@ curve_knowledge:
     range: {hard_min: -2000, hard_max: 2000}
   CAL:
     semantic_name: caliper
-    aliases: {exact: [CAL, CALI, HCAL, CAL_1, CALD, CALX, CALY, C1, C2], regex: ["^(H?CAL|CALI)[A-Z0-9_]*$"]}
+    aliases: {exact: [CAL, CALI, HCAL, CAL_1, CALD, CALX, CALY], regex: ["^(H?CAL|CALI)[A-Z0-9_]*$"]}
     dimensions: [length]
     canonical_unit: cm
     accepted_units: [cm, mm, in]
     range: {soft_min: 5, soft_max: 50, hard_min: 0, hard_max: 200}
   DT:
     semantic_name: compressional_slowness
-    aliases: {exact: [DT, DTC, AC, P_AC, SONIC, DTCO, DTP, DT4P, DT24], regex: ["^(DT|AC|P_AC|SONIC)[A-Z0-9_]*$"]}
+    aliases: {exact: [DT, DTC, AC, P_AC, SONIC, DTCO, DTP, DT4P, DT24], regex: ["^(DT|SONIC)[A-Z0-9_]*$", "^P_AC[A-Z0-9_]*$", "^AC(?:[_0-9].*)?$"]}
     descriptions: [sonic, acoustic, compressional, slowness, 声波, 时差]
     dimensions: [slowness]
     canonical_unit: us/m
@@ -88,7 +88,7 @@ curve_knowledge:
     range: {soft_min: 0, soft_max: 1, hard_min: -0.1, hard_max: 1.2}
   PIMP:
     semantic_name: p_impedance
-    aliases: {exact: [PIMP, PP_IMP, AI, P_IMPEDANCE, IMP], regex: ["^(P|PP)?_?IMP[A-Z0-9_]*$"]}
+    aliases: {exact: [PIMP, PP_IMP, AI, P_IMPEDANCE, IMP, ACOUSTICIMPEDANCE1], regex: ["^(P|PP)?_?IMP[A-Z0-9_]*$", "^ACOUSTIC_?IMPEDANCE[A-Z0-9_]*$"]}
     dimensions: [impedance]
     canonical_unit: "(m/s)*(g/cm3)"
     accepted_units: ["(m/s)*(g/cm3)", "m/s*g/cm3", unknown]
@@ -109,7 +109,7 @@ curve_knowledge:
     range: {soft_min: 500, soft_max: 8000, hard_min: 100, hard_max: 15000}
   VS:
     semantic_name: s_velocity
-    aliases: {exact: [VS, S_VEL, VELS, SVEL], regex: ["^(VS|S_?VEL)[A-Z0-9_]*$"]}
+    aliases: {exact: [VS, S_VEL, VELS, SVEL], regex: ["^VS(?:[_0-9].*)?$", "^S_?VEL[A-Z0-9_]*$"]}
     dimensions: [velocity]
     canonical_unit: m/s
     accepted_units: [m/s, ft/s]

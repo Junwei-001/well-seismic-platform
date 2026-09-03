@@ -1,0 +1,18 @@
+{
+  "schema_version": "well-seismic.geopath-tie-v1.interface-placeholder.v1",
+  "mode": "interfaces_only",
+  "split_unit": "external_dataset_family",
+  "geometry_policy": {
+    "horizontal": "maximum_inclination_deg >= 60",
+    "deviated": "maximum_inclination_deg >= 10 or maximum_lateral_offset_m > 50",
+    "vertical": "otherwise"
+  },
+  "counts": {
+    "all_wells": null,
+    "supervised_wells": null,
+    "unlabeled_wells": null
+  },
+  "seismic_relative_path": null,
+  "folds": {},
+  "note": "项目/测区数据与具体划分未随公共接口版分发；由外部模型扩展在本机提供。"
+}

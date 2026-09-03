@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
+import copy
 import csv
+import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -101,7 +101,11 @@ def build_catalog(manifest: dict[str, Any], manifest_path: str | Path) -> tuple[
                 dataset=dataset,
                 version=group.get("version"),
                 stage=group.get("stage", "UNKNOWN"),
-                options=group.get("options", {}),
+                # Directory groups can expand into many assets.  Each asset
+                # needs an independent effective-options document because a
+                # validated per-file parse repair must never leak into a
+                # sibling file from the same directory.
+                options=copy.deepcopy(group.get("options", {})),
                 identity=identity,
             )
             assets.append(asset)

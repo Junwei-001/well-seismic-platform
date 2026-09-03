@@ -1,99 +1,84 @@
-# 井震数据处理与智能解释平台
+# 地层慧眼平台｜独立接口版（无任务权重）
 
-这是一个可迁移的本地井震平台发布包，包含数据准备、测井/地震可视化、井震空间对齐、下游预测解释，以及 FaultSeg 三维断层分割和 Seismic Surface Seg 地层分割推理。平台只执行已集成模型的推理，不要求重新训练。
+这是从当前 `WellFuse/platform` 工作树抽离出的独立平台骨架，版本标识为
+`20260903`。平台的前端、接口路由、数据合同、任务语义和插件扩展点均已保留；
+任务专属 checkpoint、CUDA/模型运行环境、历史训练产物、业务数据和缓存均未带入。
 
-## 目录说明
+## 目录约定
 
-- `src/well_seismic`：平台后端、预处理、适配器与任务编排
-- `frontend`：Vue 3 可视化前端
-- `configs`：平台及各模型的可迁移配置
-- `接口模型/faultSeg-main`：FaultSeg 代码和推理权重
-- `接口模型/seismic_surface_seg`：地层分割代码和推理权重
-- `接口模型/cigvis-main/cigvis-main`：CIGVis 可视化库
-- `data`：本机数据入口，真实数据默认不提交
-- `model_outputs`、`输出结果`：运行结果目录，内容默认不提交
-- `models/manifest.json`：模型文件大小和 SHA-256 清单
+```text
+地层慧眼平台_独立版_无任务权重_20260903/
+├─ frontend/                 Vue 前端（当前工作树原样复制，含 source + dist）
+├─ src/well_seismic/         FastAPI、数据处理、合同与注册中心
+├─ configs/                  与模型无关的输入/坐标/融合配置
+├─ interfaces/               模型接口清单与上游可视化适配代码
+├─ 接口模型/                 保持旧相对路径的上游适配源码（无权重）
+├─ models/task-models/       未来外置任务模型的接入槽位（当前为空）
+├─ runtime/                  平台相对路径挂载点（当前无运行时）
+├─ data/                     本机 SEG-Y/LAS/轨迹数据入口（当前为空）
+├─ model_outputs/            模型结果输出入口（当前为空；状态库在 runtime/state）
+├─ scripts/                  通用脚本；启动使用 `启动接口平台.ps1`/`.bat`
+└─ docs/                     抽离说明、接口扩展和前端保真记录
+```
 
-## 环境要求
+后端故意保持原有根级布局（`src`、`frontend/dist`、`configs`），因此
+`python -m well_seismic.api` 的相对路径和同源前端资源不需要改写。
 
-- Windows 10/11 或主流 Linux
-- Python 3.11
-- Node.js 20
-- Git 与 Git LFS
-- 完整安装建议至少 16 GB 内存；运行 1.2 GB Mask2Former 权重建议使用独立 GPU
+## 当前运行边界
 
-所有代码和模型路径均相对于仓库根目录解析，不依赖原电脑的 Conda 路径。项目数据、缓存、输出和 `.env` 密钥已从发布范围中隔离。
+启动脚本会设置 `WELLFUSE_MODEL_MODE=interfaces_only`。后端仍返回完整的
+`/api/v1/capabilities` 和 `/api/v1/releases` 合同，但任务模型的
+`runtime_status` 为 `adapter_required`、运行器列表为空，提交预测会得到结构化的
+“模型不可运行”响应，不会尝试寻找或加载隐含权重。`models/INTERFACE_ONLY` 是同样的
+fail-closed 标记，即使直接执行 `python -m well_seismic.api` 也会保持该模式。
 
-## Windows 一键安装
+允许运行的内容仅限于平台级数据合同、快照/元数据处理、接口查询和可视化壳；
+不要把此目录误认为已完成模型部署包。
 
-先安装 Python 3.11、Node.js 20、Git 和 Git LFS，然后双击 `安装环境.bat`。也可在 PowerShell 中执行：
+## 启动与检查（需要本机 Python）
 
 ```powershell
-git lfs install
-git lfs pull
-.\scripts\setup.ps1
-.\scripts\run.ps1
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[web]"
+# 或：.\.venv\Scripts\python.exe -m pip install -r requirements-interface.txt
+.\启动接口平台.ps1
 ```
 
-浏览器访问 <http://127.0.0.1:8000>。如果 PowerShell 限制脚本执行，可继续使用仓库内的 `.bat` 入口。
+也可以直接运行 `install_interface_dependencies.bat` 自动创建 `.venv` 并安装上述依赖。
 
-## Linux / macOS
+启动脚本会依次尝试本目录 `.venv`、`runtime/py311`、系统的
+`%LOCALAPPDATA%\WellSeismicPlatform\py311` 和 PATH 中的 Python，并检查
+`fastapi + uvicorn + numpy + PyYAML + pyproj`；也可传入 `-PythonPath <python.exe>`。接口模式变量会写入子进程并
+记录 PID，停止时只终止本目录登记的服务。双击 BAT 使用纯 ASCII 调度脚本，避免中文
+路径编码问题。
 
-```bash
-chmod +x scripts/setup.sh scripts/run.sh
-./scripts/setup.sh
-./scripts/run.sh
+浏览器访问 <http://127.0.0.1:725>。停止服务请运行
+`.\停止接口平台.ps1`（也可双击 `停止接口平台.bat`）；不要只结束启动器窗口，避免后台
+Python 进程继续占用端口。若只检查代码和目录合同：
+
+```powershell
+.\.venv\Scripts\python.exe tools\verify_platform_skeleton.py
 ```
 
-也可以先用 `conda env create -f environment.yml` 创建基础环境，再在该环境中执行安装脚本。
+前端原样回归测试仍位于 `frontend/tests`；有 Node.js 时在 `frontend` 目录执行
+`npm ci` 和 `npm run test:unit`（动态编译类测试若提示缺少 `esbuild`，按开发环境补装
+该工具即可）。不要重新构建后覆盖现有 `frontend/dist`，以免改变已封存的资源哈希；
+需要构建时请先备份 dist。
 
-## 配置与数据
+如果直接双击后窗口提示“未找到完整的 Python Web 运行时”，说明所选 Python 缺少
+`uvicorn` 或 `pyproj` 等依赖；在本目录重新创建 `.venv` 并执行上面的安装命令，或用
+`-PythonPath` 指向已经同时包含 `fastapi、uvicorn、numpy、PyYAML、pyproj` 的解释器。
 
-1. 将 `.env.example` 复制为 `.env`。GLM 助手不是核心推理必需项，默认关闭；只有启用时才填写服务端密钥。
-2. 在平台中选择本机测井/地震数据的绝对路径，或把数据放入 `data`。数据不应提交到 GitHub。
-3. 修改 `configs/*.yaml` 时优先使用相对仓库根目录的路径，不要写个人用户名、盘符或 Conda 环境绝对路径。
-4. 用 `python tools/verify_release.py` 校验模型是否完整。
+## 后续模型接入
 
-## Docker
+模型接入顺序固定为：解释任务 → `ModelSpec` → `ModelInputAdapter` →
+`PredictionRunner` →（可选）`FusionStrategy`。接口组、字段和稳定 ID 见
+`interfaces/model_registry.json` 与 `docs/01_接口与扩展点.md`。未来扩展包应：
 
-确认 Git LFS 权重已经下载后运行：
+1. 放入 `models/task-models/<model_id>/<version>/`，不写入平台源码或前端；
+2. 提供 SHA-256 清单、来源/许可和输入输出合同；
+3. 以 entry point 注册适配器和运行器，并在隔离环境完成验证；
+4. 明确设置 `WELLFUSE_MODEL_MODE=full_runtime` 后再启用。
 
-```bash
-docker compose up --build
-```
-
-服务地址为 <http://127.0.0.1:8000>。宿主机 `data` 会只读挂载到容器 `/data`，输出写回仓库输出目录。GPU 推理需要额外安装 NVIDIA Container Toolkit 并按部署环境扩展 Compose 配置。
-
-## 上传 GitHub
-
-SurfaceSeg 大权重必须使用 Git LFS。首次发布建议按以下顺序：
-
-```bash
-git init
-git lfs install
-git add .
-git lfs ls-files
-git commit -m "Initial portable platform release"
-git branch -M main
-git remote add origin https://github.com/<owner>/<repository>.git
-git push -u origin main
-```
-
-克隆端必须执行 `git lfs pull`。更详细的模型说明见 `MODEL_WEIGHTS.md`。
-
-## 验证
-
-```bash
-python tools/verify_release.py
-pytest -q
-cd frontend
-npm ci
-npm run build
-```
-
-CI 会验证 Python 测试、前端构建、仓库结构和运行时导入。由于 CI 默认不下载 1.2 GB 权重，CI 接受合法的 LFS pointer；本地完整自检仍会检查实际权重。
-
-## 许可
-
-第三方许可见 `THIRD_PARTY_NOTICES.md`。其中 FaultSeg 使用 CC BY-NC 4.0，仅限非商业用途。平台自研代码在公开发布前仍需由仓库所有者选择并添加根目录 `LICENSE`。
-
+当前抽离目录不包含任何 `.pt`、`.pth`、`.safetensors`、`.ckpt`、`.onnx`、SEG-Y、
+LAS 或压缩模型环境文件。

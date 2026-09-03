@@ -34,6 +34,26 @@ class TimeDomainAlignment:
         }
 
 
+@dataclass(frozen=True)
+class StaticShiftAssessment:
+    """Correlation evidence for one bounded bulk-static search.
+
+    ``alternate_*`` describes the strongest peak outside the exclusion zone
+    around the winning lobe.  It lets the caller reject cycle skips instead of
+    treating a barely higher peak as unique evidence.
+    """
+
+    lag_samples: int
+    polarity: int
+    absolute_correlation: float
+    zero_lag_absolute_correlation: float
+    alternate_lag_samples: int | None
+    alternate_absolute_correlation: float | None
+    peak_prominence: float
+    search_limit_samples: int
+    valid_candidate_count: int
+
+
 def ricker_wavelet(frequency_hz: float, sample_interval_ms: float, duration_ms: float = 128.0) -> np.ndarray:
     """生成奇数长度、峰值归一化的零相位Ricker子波。"""
 
@@ -77,14 +97,15 @@ def shift_trace(trace: np.ndarray, lag_samples: int, fill: float = 0.0) -> np.nd
     return shifted
 
 
-def estimate_static_shift(
+def assess_static_shift(
     synthetic: np.ndarray,
     seismic: np.ndarray,
     max_lag_samples: int,
     *,
     min_overlap_samples: int = 24,
-) -> tuple[int, int, float]:
-    """返回 ``(lag, polarity, abs_correlation)``。
+    ambiguity_exclusion_samples: int = 0,
+) -> StaticShiftAssessment:
+    """Measure the winning static and whether it is a unique correlation peak.
 
     正lag表示将合成记录向更晚时间移动。相关计算只使用真实重叠区，避免循环移位。
     """
@@ -93,8 +114,8 @@ def estimate_static_shift(
     right = np.asarray(seismic, dtype=float)
     if left.shape != right.shape or left.ndim != 1:
         raise ValueError("静态时移估计要求两个等长一维数组")
-    best_lag, best_polarity, best_abs = 0, 1, -1.0
     limit = min(max(0, int(max_lag_samples)), max(0, left.size - 2))
+    candidates: list[tuple[int, int, float]] = []
     for lag in range(-limit, limit + 1):
         if lag > 0:
             a, b = left[:-lag], right[lag:]
@@ -111,11 +132,188 @@ def estimate_static_shift(
         if denominator <= 1e-12:
             continue
         correlation = float(np.dot(a, b) / denominator)
-        if abs(correlation) > best_abs:
-            best_lag = lag
-            best_polarity = 1 if correlation >= 0 else -1
-            best_abs = abs(correlation)
-    return best_lag, best_polarity, max(0.0, best_abs)
+        candidates.append((lag, 1 if correlation >= 0 else -1, abs(correlation)))
+
+    if not candidates:
+        return StaticShiftAssessment(
+            lag_samples=0,
+            polarity=1,
+            absolute_correlation=0.0,
+            zero_lag_absolute_correlation=0.0,
+            alternate_lag_samples=None,
+            alternate_absolute_correlation=None,
+            peak_prominence=0.0,
+            search_limit_samples=limit,
+            valid_candidate_count=0,
+        )
+
+    # ``max`` is stable, preserving the historical earlier-lag tie break.
+    best_lag, best_polarity, best_abs = max(candidates, key=lambda item: item[2])
+    zero_lag_abs = next(
+        (correlation for lag, _polarity, correlation in candidates if lag == 0),
+        0.0,
+    )
+    exclusion = max(0, int(ambiguity_exclusion_samples))
+    alternatives = [
+        item for item in candidates if abs(item[0] - best_lag) > exclusion
+    ]
+    alternate = max(alternatives, key=lambda item: item[2]) if alternatives else None
+    alternate_abs = None if alternate is None else float(alternate[2])
+    prominence = (
+        float(best_abs)
+        if alternate_abs is None
+        else max(0.0, float(best_abs) - alternate_abs)
+    )
+    return StaticShiftAssessment(
+        lag_samples=int(best_lag),
+        polarity=int(best_polarity),
+        absolute_correlation=max(0.0, float(best_abs)),
+        zero_lag_absolute_correlation=max(0.0, float(zero_lag_abs)),
+        alternate_lag_samples=None if alternate is None else int(alternate[0]),
+        alternate_absolute_correlation=alternate_abs,
+        peak_prominence=prominence,
+        search_limit_samples=limit,
+        valid_candidate_count=len(candidates),
+    )
+
+
+def estimate_static_shift(
+    synthetic: np.ndarray,
+    seismic: np.ndarray,
+    max_lag_samples: int,
+    *,
+    min_overlap_samples: int = 24,
+) -> tuple[int, int, float]:
+    """Return ``(lag, polarity, abs_correlation)`` for compatibility."""
+
+    assessment = assess_static_shift(
+        synthetic,
+        seismic,
+        max_lag_samples,
+        min_overlap_samples=min_overlap_samples,
+    )
+    return (
+        assessment.lag_samples,
+        assessment.polarity,
+        assessment.absolute_correlation,
+    )
+
+
+def static_shift_gate_rejection_reasons(
+    assessment: StaticShiftAssessment,
+    *,
+    sample_interval_ms: float,
+    minimum_correlation: float,
+    minimum_peak_prominence: float,
+    maximum_accepted_shift_ms: float,
+    boundary_margin_ms: float,
+) -> tuple[str, ...]:
+    """Return fail-closed reasons without consulting any depth-time labels."""
+
+    dt_ms = float(sample_interval_ms)
+    if not np.isfinite(dt_ms) or dt_ms <= 0.0:
+        raise ValueError("地震采样间隔必须是有限正数")
+    candidate_shift_ms = float(assessment.lag_samples * dt_ms)
+    boundary_margin_samples = int(
+        np.ceil(max(0.0, float(boundary_margin_ms)) / dt_ms)
+    )
+    rejection_reasons: list[str] = []
+    if assessment.absolute_correlation < float(minimum_correlation):
+        rejection_reasons.append("correlation_below_threshold")
+    if (
+        assessment.alternate_absolute_correlation is not None
+        and assessment.peak_prominence < float(minimum_peak_prominence)
+    ):
+        rejection_reasons.append("ambiguous_correlation_peak")
+    if abs(candidate_shift_ms) > float(maximum_accepted_shift_ms) + 1e-9:
+        rejection_reasons.append("static_shift_exceeds_physical_prior_limit")
+    boundary_threshold = max(
+        1, assessment.search_limit_samples - boundary_margin_samples
+    )
+    if (
+        assessment.search_limit_samples > 0
+        and abs(assessment.lag_samples) >= boundary_threshold
+    ):
+        rejection_reasons.append("correlation_peak_at_search_boundary")
+    return tuple(rejection_reasons)
+
+
+def robust_stack_traces(
+    traces: np.ndarray,
+    weights: np.ndarray | None = None,
+    *,
+    clip_sigma: float = 3.5,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Build a local reference trace while suppressing incoherent amplitudes.
+
+    The first axis is the local trace gather and the second axis is seismic
+    time.  With at least three traces, a sample-wise median/MAD envelope
+    winsorizes spikes before the weighted stack.  One trace remains an exact
+    no-op, so existing single-trace behavior is unchanged.
+    """
+
+    values = np.asarray(traces, dtype=float)
+    if values.ndim == 1:
+        return values.copy(), {
+            "trace_stack_method": "single_trace",
+            "trace_stack_count": 1,
+            "trace_stack_clipped_fraction": 0.0,
+        }
+    if values.ndim != 2 or values.shape[0] < 1 or values.shape[1] < 1:
+        raise ValueError("井旁地震参考必须是一维道或二维局部道集")
+    if not np.isfinite(clip_sigma) or float(clip_sigma) <= 0.0:
+        raise ValueError("稳健道集截断系数必须是有限正数")
+    count = values.shape[0]
+    if weights is None:
+        base_weights = np.ones(count, dtype=float)
+    else:
+        base_weights = np.asarray(weights, dtype=float)
+        if base_weights.shape != (count,):
+            raise ValueError("局部道权重必须与道数一致")
+        if np.any(~np.isfinite(base_weights)) or np.any(base_weights < 0.0):
+            raise ValueError("局部道权重必须是有限非负数")
+        if not np.any(base_weights > 0.0):
+            raise ValueError("局部道权重不能全部为0")
+
+    finite = np.isfinite(values)
+    prepared = values.copy()
+    clipped_count = 0
+    finite_count = int(np.sum(finite))
+    method = "finite_weighted_mean"
+    if count >= 3:
+        method = "median_mad_winsorized_weighted_mean"
+        with np.errstate(invalid="ignore"):
+            center = np.nanmedian(np.where(finite, values, np.nan), axis=0)
+            mad = np.nanmedian(np.abs(np.where(finite, values, np.nan) - center), axis=0)
+        robust_scale = 1.4826 * mad
+        positive_scale = robust_scale[np.isfinite(robust_scale) & (robust_scale > 1e-12)]
+        scale_floor = float(np.median(positive_scale) * 0.05) if positive_scale.size else 0.0
+        robust_scale = np.maximum(robust_scale, scale_floor)
+        lower = center - float(clip_sigma) * robust_scale
+        upper = center + float(clip_sigma) * robust_scale
+        clip_mask = finite & (
+            (prepared < lower[None, :]) | (prepared > upper[None, :])
+        )
+        clipped_count = int(np.sum(clip_mask))
+        prepared = np.where(finite, np.minimum(np.maximum(prepared, lower), upper), np.nan)
+
+    weighted = np.where(np.isfinite(prepared), prepared, 0.0) * base_weights[:, None]
+    denominator = np.sum(np.isfinite(prepared) * base_weights[:, None], axis=0)
+    stacked = np.divide(
+        np.sum(weighted, axis=0),
+        denominator,
+        out=np.full(values.shape[1], np.nan, dtype=float),
+        where=denominator > 0.0,
+    )
+    return stacked, {
+        "trace_stack_method": method,
+        "trace_stack_count": int(count),
+        "trace_stack_clip_sigma": float(clip_sigma),
+        "trace_stack_clipped_fraction": (
+            float(clipped_count / finite_count) if finite_count else 0.0
+        ),
+        "trace_stack_valid_sample_fraction": float(np.mean(np.isfinite(stacked))),
+    }
 
 
 def _curve(curves: Mapping[str, np.ndarray], name: str, size: int) -> np.ndarray | None:
@@ -295,19 +493,30 @@ def build_sonic_time_domain_alignment(
         * min(coverage, density_coverage)
         * (1.0 if datum_explicit else 0.72)
     )
+    replacement_velocity = options.get("replacement_velocity_m_s")
     transform = SonicIntegratedTimeDepthTransform(
         depth,
         velocity,
         reference_depth_m=float(options.get("reference_depth_m", 0.0)),
         datum_time_ms=float(options.get("datum_time_ms", 0.0)),
-        replacement_velocity_m_s=options.get("replacement_velocity_m_s", 2000.0),
+        replacement_velocity_m_s=replacement_velocity,
         max_gap_m=float(options.get("max_gap_m", 30.0)),
         confidence=prior_confidence,
     )
 
-    trace = np.asarray(seismic_trace, dtype=float)
+    trace_input = np.asarray(seismic_trace, dtype=float)
     time_axis = np.asarray(seismic_time_ms, dtype=float)
-    if trace.ndim != 1 or trace.shape != time_axis.shape:
+    if trace_input.ndim == 1:
+        trace, trace_stack_diagnostics = robust_stack_traces(trace_input)
+    elif trace_input.ndim == 2:
+        trace, trace_stack_diagnostics = robust_stack_traces(
+            trace_input,
+            options.get("trace_stack_weights"),
+            clip_sigma=float(options.get("trace_stack_clip_sigma", 3.5)),
+        )
+    else:
+        raise ValueError("井旁地震参考必须是一维道或二维局部道集")
+    if time_axis.ndim != 1 or trace.shape != time_axis.shape:
         raise ValueError("井旁地震参考道必须与地震时间轴等长")
     diagnostics: dict[str, Any] = {
         "velocity_source": velocity_source,
@@ -317,7 +526,10 @@ def build_sonic_time_domain_alignment(
         "datum_is_explicit": datum_explicit,
         "datum_time_ms": float(options.get("datum_time_ms", 0.0)),
         "reference_depth_m": float(options.get("reference_depth_m", 0.0)),
-        "replacement_velocity_m_s": float(options.get("replacement_velocity_m_s", 2000.0)),
+        "replacement_velocity_m_s": (
+            None if replacement_velocity is None else float(replacement_velocity)
+        ),
+        **trace_stack_diagnostics,
         "open_source_basis": "SEG tutorials-2014 / Bruges-compatible equations; original NumPy implementation",
     }
     try:
@@ -348,22 +560,63 @@ def build_sonic_time_domain_alignment(
     tie_mask = (time_axis >= valid_time_range[0] - margin) & (time_axis <= valid_time_range[1] + margin)
     minimum_overlap = int(options.get("min_overlap_samples", 24))
     maximum_shift_ms = float(options.get("max_static_shift_ms", 120.0))
+    maximum_lag_samples = int(round(maximum_shift_ms / max(dt_ms, 1e-9)))
+    ambiguity_exclusion_ms = float(
+        options.get(
+            "static_shift_ambiguity_exclusion_ms",
+            1000.0 / max(float(options.get("wavelet_frequency_hz", 30.0)), 1e-9),
+        )
+    )
+    ambiguity_exclusion_samples = int(
+        np.ceil(max(0.0, ambiguity_exclusion_ms) / max(dt_ms, 1e-9))
+    )
     if int(np.sum(tie_mask)) >= minimum_overlap:
-        lag, polarity, correlation = estimate_static_shift(
+        assessment = assess_static_shift(
             synthetic[tie_mask],
             trace[tie_mask],
-            int(round(maximum_shift_ms / max(dt_ms, 1e-9))),
+            maximum_lag_samples,
             min_overlap_samples=minimum_overlap,
+            ambiguity_exclusion_samples=ambiguity_exclusion_samples,
         )
     else:
-        lag, polarity, correlation = 0, 1, 0.0
-    shift_ms = float(lag * dt_ms)
+        assessment = StaticShiftAssessment(
+            lag_samples=0,
+            polarity=1,
+            absolute_correlation=0.0,
+            zero_lag_absolute_correlation=0.0,
+            alternate_lag_samples=None,
+            alternate_absolute_correlation=None,
+            peak_prominence=0.0,
+            search_limit_samples=maximum_lag_samples,
+            valid_candidate_count=0,
+        )
+    candidate_lag = assessment.lag_samples
+    polarity = assessment.polarity
+    correlation = assessment.absolute_correlation
+    candidate_shift_ms = float(candidate_lag * dt_ms)
     minimum_correlation = float(options.get("min_correlation", 0.2))
-    accepted = correlation >= minimum_correlation
+    minimum_peak_prominence = float(options.get("min_peak_prominence", 0.05))
+    maximum_accepted_shift_ms = float(
+        options.get("max_accepted_static_shift_ms", maximum_shift_ms)
+    )
+    boundary_margin_ms = float(
+        options.get("static_shift_boundary_margin_ms", 2.0 * dt_ms)
+    )
+    rejection_reasons = list(
+        static_shift_gate_rejection_reasons(
+            assessment,
+            sample_interval_ms=dt_ms,
+            minimum_correlation=minimum_correlation,
+            minimum_peak_prominence=minimum_peak_prominence,
+            maximum_accepted_shift_ms=maximum_accepted_shift_ms,
+            boundary_margin_ms=boundary_margin_ms,
+        )
+    )
+    accepted = not rejection_reasons
+    lag = candidate_lag if accepted else 0
+    shift_ms = candidate_shift_ms if accepted else 0.0
     if accepted:
         transform.shift_ms += shift_ms
-    else:
-        shift_ms, lag = 0.0, 0
 
     shift_quality = float(np.exp(-abs(shift_ms) / max(maximum_shift_ms, dt_ms)))
     tie_quality = correlation if accepted else 0.2 * correlation
@@ -380,9 +633,31 @@ def build_sonic_time_domain_alignment(
         "reflectivity_samples": reflectivity_count,
         "wavelet_frequency_hz": float(options.get("wavelet_frequency_hz", 30.0)),
         "static_shift_ms": round(shift_ms, 6),
+        "candidate_static_shift_ms": round(candidate_shift_ms, 6),
+        "candidate_lag_samples": int(candidate_lag),
         "polarity": polarity,
         "absolute_correlation": round(correlation, 6),
+        "zero_lag_absolute_correlation": round(
+            assessment.zero_lag_absolute_correlation, 6
+        ),
+        "correlation_gain_vs_zero_lag": round(
+            correlation - assessment.zero_lag_absolute_correlation, 6
+        ),
+        "alternate_lag_samples": assessment.alternate_lag_samples,
+        "alternate_absolute_correlation": (
+            None
+            if assessment.alternate_absolute_correlation is None
+            else round(assessment.alternate_absolute_correlation, 6)
+        ),
+        "peak_prominence": round(assessment.peak_prominence, 6),
+        "static_shift_gate_accepted": accepted,
+        "static_shift_rejection_reasons": rejection_reasons,
         "correlation_threshold": minimum_correlation,
+        "minimum_peak_prominence": minimum_peak_prominence,
+        "static_shift_ambiguity_exclusion_ms": ambiguity_exclusion_ms,
+        "max_accepted_static_shift_ms": maximum_accepted_shift_ms,
+        "static_shift_boundary_margin_ms": boundary_margin_ms,
+        "static_shift_search_limit_ms": maximum_shift_ms,
     })
     corrected_synthetic = shift_trace(float(polarity) * synthetic, lag) if accepted else synthetic
     return TimeDomainAlignment(

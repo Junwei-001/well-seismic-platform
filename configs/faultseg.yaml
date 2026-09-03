@@ -3,11 +3,69 @@ faultseg:
   tensor_order: [N, C, Z, INLINE, CROSSLINE]
   channels: 1
   dtype: float32
-  patch_size: [32, 32, 32]
-  overlap: [8, 8, 8]
+  # Shape/axis contract only; the checkpoint is supplied by a future extension.
+  patch_size: [128, 128, 128]
+  overlap: [64, 64, 64]
   patch_multiple: 8
-  normalization: patch_zscore
+  # Every training item is one 128^3 volume and is independently normalized.
+  # Formal tiled inference therefore applies the same population z-score to
+  # each 128^3 inference patch before the model forward pass.
+  normalization: per_patch_zscore
+  debug_normalization: per_patch_zscore
   invalid_fill: patch_mean
+  # Shared-ROI normalization is retained only for offline comparison.  It has
+  # no field-label calibration and production prediction must fail closed if it
+  # is selected.
+  experimental_normalization: roi_shared_zscore
+  experimental_normalization_calibrated: false
   profile: field-raw
+  threshold: 0.518
+  threshold_source: external_extension
+  training_context_shape: [128, 128, 128]
+  weighted_blending: true
+  # The formal platform route always reconstructs the complete regular survey
+  # from overlapping checkpoint-native patches. Probability, blend weights and
+  # the final mask are disk-backed; the API process never holds the survey in
+  # RAM. If the declared working set cannot be staged safely, prediction fails
+  # explicitly instead of substituting a smaller ROI or representative sample.
+  formal_scope: full_volume
+  maximum_full_volume_working_bytes: 68719476736
+  minimum_free_space_factor: 1.10
+  automatic_roi_size: [1024, 256, 256]
+  api_process_in_memory_bytes: 268435456
+  cuda_patch_fallbacks: []
+  runtime_status: adapter_required
+  checkpoint: null
+
+# FaultNet remains a separate interface contract.  Its future extension may
+# provide TorchScript checkpoints and the declared per-cuboid normalization.
+faultnet:
+  model_order: [Z, INLINE, CROSSLINE]
+  tensor_order: [N, C, Z, INLINE, CROSSLINE]
+  channels: 1
+  dtype: float32
+  patch_size: [128, 128, 128]
+  overlap: [64, 64, 64]
+  patch_multiple: 16
+  normalization: per_patch_minmax
+  debug_normalization: per_patch_minmax
+  invalid_fill_normalized: 0.5
+  output_activation: identity
+  checkpoint_loader: torchscript
   threshold: 0.5
-  checkpoint: 接口模型/faultSeg-main/model/faultseg-best.pt
+  threshold_source: external_extension
+  training_context_shape: [128, 128, 128]
+  training_context_authority: platform_declared_divisible_16
+  weighted_blending: true
+  formal_scope: full_volume
+  maximum_full_volume_working_bytes: 68719476736
+  minimum_free_space_factor: 1.10
+  automatic_roi_size: [1024, 256, 256]
+  api_process_in_memory_bytes: 268435456
+  cuda_patch_fallbacks: []
+  default_gamma: "0.7"
+  runtime_status: adapter_required
+  checkpoint_variants:
+    "0.5": null
+    "0.6": null
+    "0.7": null

@@ -15,4 +15,4 @@ segy:
       y: [77, 185]
   geometry_sample_traces: 2048
   minimum_geometry_confidence: 0.35
-
+  maximum_grid_cell_trace_ratio: 4.0

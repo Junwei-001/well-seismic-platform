@@ -1,19 +1,23 @@
 llm:
   # 双重开关：后端必须启用，前端任务也必须主动勾选，才会调用外部模型。
-  enabled: false
-  provider: glm
+  # 未配置服务端密钥时仍不可用；配置密钥后由任务级开关决定是否调用。
+  enabled: true
+  provider: kimi
   api_mode: chat_completions
-  base_url: https://open.bigmodel.cn/api/paas/v4
-  model: glm-4.7-flash
-  timeout_seconds: 25
+  # 产品内集成使用 Kimi 开放平台，而不是仅面向 IDE/CLI 的 Kimi Code 接口。
+  base_url: https://api.moonshot.cn/v1
+  model: kimi-k3
+  reasoning_effort: high
+  timeout_seconds: 60
   max_retries: 2
-  max_output_tokens: 900
+  # K3 的推理 token 计入 completion；过小会以 finish_reason=length 被完整性门拒绝。
+  max_output_tokens: 4096
   min_confidence: 0.82
   max_calls_per_task: 24
-  max_context_chars: 6000
+  max_context_chars: 16000
   send_file_names: false
   use_system_proxy: false
   audit_decisions: true
   # 每个任务最多研判6个最先出现的错误/警告，避免大量文件导致外部调用时间不可控。
   max_issue_recommendations: 6
-  allowed_decisions: [metadata_role, curve_mapping, issue_action]
+  allowed_decisions: [input_file_role, metadata_role, curve_mapping, vertical_datum_semantics, issue_action]

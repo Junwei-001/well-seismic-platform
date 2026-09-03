@@ -21,6 +21,10 @@ class InterpretationTaskSpec:
     evaluation_metrics: tuple[str, ...]
     order: int
     contract_version: str = "1.0"
+    group: str = "interpretation"
+    lifecycle: str = "active"
+    evidence_policy: str = "model_release"
+    show_in_prediction_menu: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

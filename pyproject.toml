@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "well-seismic-pipeline"
 version = "0.3.0"
 description = "Portable well-seismic data preparation, visualization and interpretation platform"
-requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "PyYAML>=6"]
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24", "PyYAML>=6", "pyproj==3.7.2"]
 
 [project.optional-dependencies]
 full = ["pandas>=2", "scipy>=1.10", "xarray>=2023.1"]
@@ -20,6 +20,7 @@ all = [
   "pandas>=2",
   "scipy>=1.10",
   "xarray>=2023.1",
+  "pyproj==3.7.2",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "torch>=2.4,<3",
@@ -40,3 +41,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]

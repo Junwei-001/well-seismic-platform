@@ -19,7 +19,19 @@ def normalize_unit(unit: str, aliases: dict[str, str]) -> str:
         .replace("μ", "Μ")
         .replace("µ", "Μ")
     )
-    return aliases.get(key, raw or "unknown")
+    intrinsic_time_units = {
+        "S": "s",
+        "SEC": "s",
+        "SECOND": "s",
+        "SECONDS": "s",
+        "MS": "ms",
+        "MSEC": "ms",
+        "MILLISECOND": "ms",
+        "MILLISECONDS": "ms",
+        "US": "us",
+        "ΜS": "us",
+    }
+    return aliases.get(key, intrinsic_time_units.get(key, raw or "unknown"))
 
 
 def convert_unit(values: np.ndarray, source: str, target: str, cfg: dict[str, Any]) -> tuple[np.ndarray, bool]:
@@ -187,15 +199,33 @@ class CurveKnowledgeBase:
     def standardize(self, info: CurveInfo, values: np.ndarray) -> tuple[CurveInfo, np.ndarray, np.ndarray, list[str]]:
         issues: list[str] = []
         standardized, converted = convert_unit(values.astype(float, copy=True), info.original_unit, info.standard_unit, self.units)
-        if (
-            info.original_unit.casefold() != info.standard_unit.casefold()
-            and info.original_unit not in ("", "unknown")
+        unknown_twt_unit = (
+            info.standard_name == "TWT"
+            and info.original_unit in ("", "unknown")
+            and bool(np.any(np.isfinite(values)))
+        )
+        conversion_failed = (
+            bool(np.any(np.isfinite(values)))
+            and info.original_unit.casefold() != info.standard_unit.casefold()
+            and (info.original_unit not in ("", "unknown") or unknown_twt_unit)
             and not converted
-        ):
+        )
+        if unknown_twt_unit:
+            # A bare TIME/TWT column can be seconds or milliseconds.  Numeric
+            # scale is not authoritative enough to choose between them, so the
+            # curve remains inventoried but cannot become an MD--TWT control.
+            converted = False
+            conversion_failed = True
+        if conversion_failed:
             issues.append(f"unit_conversion_unavailable:{info.original_unit}->{info.standard_unit}")
         rule = self.rules.get(info.standard_name, {})
         bounds = rule.get("range", {})
         mask = np.isfinite(standardized)
+        if conversion_failed:
+            # Values in an incompatible or unknown physical unit must never
+            # enter a model merely because their numeric range looks plausible.
+            mask[:] = False
+            standardized[:] = np.nan
         if bounds:
             valid_range = (standardized >= bounds.get("hard_min", -np.inf)) & (standardized <= bounds.get("hard_max", np.inf))
             mask &= valid_range

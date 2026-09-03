@@ -1,6 +1,9 @@
 surface_seg:
   model_root: 接口模型/seismic_surface_seg
-  models_dir: 接口模型/seismic_surface_seg/models
+  models_dir: models/task-models/seismic_surface_seg
+  execution_backend: external_python
+  external_python: null
+  runtime_status: adapter_required
   input_order: [INLINE, CROSSLINE, SAMPLE]
   slice_tensor_order: [N, C, SAMPLE, CROSSLINE]
   channels: 3
@@ -9,19 +12,33 @@ surface_seg:
   amplitude_mode: auto
   query_threshold: 0.35
   mask_threshold: 0.5
+  confidence_threshold: 0.35
+  # A future extension must reproduce its declared training transform.
+  preprocessing_policy: checkpoint-native-anisotropic-resize
+  window_overlap: 0.0
+  max_tiles_per_inline: 1
+  # Used only when service configuration explicitly selects
+  # experimental-bounded-aspect-preserving-overlap.
+  minimum_uniform_scale: 0.35
+  association_max_gap: 2
+  # Raw horizon surfaces and IDs are always retained.  The viewer publishes
+  # only surfaces whose finite support and largest deterministic 4-connected
+  # component meet this sealed, tighten-only display policy.
+  horizon_display_gate:
+    schema_version: surface-seg.horizon-display-gate.v1
+    minimum_finite_trace_fraction: 0.10
+    minimum_largest_component_fraction: 0.05
+    surface_connectivity: 4
+  prior_compatibility_mode: segformer-base-as-refine-prior
+  network_access: disabled
   segformer_batch_size: 2
   mask2former_batch_size: 1
   num_visualizations: 5
   inline_count: null
   max_inlines: null
   write_mask_sgy: true
-  checkpoint_manifest:
-    segformer-base:
-      size: 44789203
-      sha256: 1b452d14a9d4248618bc4398f36efcabdc832ed1e6f25f976fa9768e0c804d1b
-    segformer-refine:
-      size: 44789203
-      sha256: 1c04d5015b7edefc6f1596b5126106a834f8093caf3d6d65cb5a6415b468e5b1
-    mask2former:
-      size: 1287426890
-      sha256: 42512eb28f89b6d9e16073a15b8a3ab97f802c1a2081ee3aa48cba5742023d17
+  checkpoint_manifest: {}
+  deferred_checkpoints:
+    - segformer-base
+    - segformer-refine
+    - mask2former

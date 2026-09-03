@@ -1,0 +1,52 @@
+{
+  "schema_version": "well-seismic.platform-extraction.v1",
+  "platform_name": "地层慧眼平台",
+  "package_name": "地层慧眼平台_独立版_无任务权重_20260903",
+  "source": "WellFuse/platform（当前工作树）",
+  "source_commit": "a03da6a",
+  "source_worktree_dirty": true,
+  "package_file_count": 326,
+  "package_bytes": 9265481,
+  "extracted_at": "2026-09-03",
+  "runtime_mode": "interfaces_only",
+  "weights_attached": false,
+  "backend_mode_gate": {
+    "module": "src/well_seismic/platform_mode.py",
+    "marker": "models/INTERFACE_ONLY",
+    "environment": "WELLFUSE_MODEL_MODE=interfaces_only",
+    "prediction_runners_registered": false,
+    "external_entry_points_loaded": false
+  },
+  "frontend": {
+    "source_copied_byte_for_byte": true,
+    "files": 50,
+    "bytes": 4266081,
+    "dist_assets_preserved": true,
+    "node_modules_included": false
+  },
+  "excluded": {
+    "task_model_checkpoints": true,
+    "cuda_or_conda_model_environments": true,
+    "training_and_evaluation_artifacts": true,
+    "business_data_and_historical_outputs": true,
+    "source_machine_private_config": true,
+    "caches_and_generated_files": true
+  },
+  "extension_slots": {
+    "model_root": "models/task-models",
+    "model_registry": "interfaces/model_registry.json",
+    "model_plugin_entry_point": "well_seismic.plugins",
+    "input_adapter_entry_point": "well_seismic.input_adapters",
+    "prediction_runner_entry_point": "well_seismic.prediction_runners",
+    "fusion_entry_point": "well_seismic.fusion_strategies"
+  },
+  "verification": {
+    "static": "python tools/verify_platform_skeleton.py",
+    "runtime": "python tools/verify_platform_skeleton.py --runtime"
+  },
+  "bootstrap": {
+    "install": "install_interface_dependencies.bat",
+    "start": "start_interface_platform.bat",
+    "stop": "stop_interface_platform.bat"
+  }
+}

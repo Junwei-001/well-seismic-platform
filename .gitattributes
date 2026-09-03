@@ -1,8 +1,6 @@
 * text=auto
-*.sh text eol=lf
 *.ps1 text eol=crlf
 *.bat text eol=crlf
-
-# The SurfaceSeg checkpoints are larger than GitHub's normal 100 MiB limit.
-接口模型/seismic_surface_seg/models/**/*.pt filter=lfs diff=lfs merge=lfs -text
-
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

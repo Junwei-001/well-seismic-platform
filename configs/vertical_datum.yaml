@@ -1,0 +1,13 @@
+vertical_datum:
+  vertical_crs:
+    id: LOCAL_MSL_UNSPECIFIED
+    unit: m
+    axis: elevation_positive_up
+  # 同一类基准（例如.dev中的KB与时深文件# KB）的最大允许差值。
+  consistency_tolerance_m: 0.5
+  maximum_kb_gl_offset_m: 30.0
+  # GL是地面高程，不自动冒充测井深度零点；只有明确配置后才可降级使用。
+  allow_gl_as_well_depth_reference: false
+  # 输入TVDSS必须逐资产声明符号约定，未声明时阻断，不设全局默认。
+  accepted_tvdss_conventions: [depth_below_msl_positive_down, elevation_positive_up]
+  require_resolved_well_and_seismic_datums: true

@@ -17,6 +17,10 @@ class ModelSpec:
     version: str = "接口1.0"
     configurable: bool = True
     implementation: str | None = None
+    scientific_status: str = "unassessed"
+    runtime_status: str = "interface_only"
+    evidence_class: str = "none"
+    warnings: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

@@ -1,0 +1,2 @@
+This marker keeps the extracted platform in interfaces_only mode.
+Remove only when a reviewed external task-model package has been installed.

@@ -1,0 +1,87 @@
+layerpulse:
+  schema_version: well-seismic.layerpulse-platform-config.v1
+  task_id: layerpulse
+  model_id: layerpulse_geochronograph_f3x200cf
+
+  runtime:
+    # These paths are server-owned deployment configuration. PredictionRequest
+    # options are never allowed to replace them.
+    # The standalone package intentionally has no checkpoint/runtime payload.
+    # These relative slots are resolved only by a future external extension.
+    project_root: models/task-models/layerpulse
+    python_executable: null
+    checkpoint: null
+    delivery_config: null
+    platform_script: scripts/run_layerpulse_platform_inference.py
+    ncs_source_root: null
+    request_schema: well-seismic.layerpulse-inference-request.v1
+    result_schema: well-seismic.layerpulse-child-result.v1
+    runtime_status: adapter_required
+    weights_attached: false
+
+  inference:
+    scope: preview_patch
+    default_patch_size_tix: [128, 128, 128]
+    minimum_patch_size_tix: [16, 16, 16]
+    patch_multiple: 16
+    # Candidate only. It remains fail-closed until an explicit CUDA memory
+    # preflight accepts one 160^3 forward for the sealed checkpoint. Enabling
+    # this block never changes the one-checkpoint / one-forward / 11-output
+    # contract; only the complete task tensors are centrally cropped to 128^3
+    # before classification argmax and persistence.
+    context_halo:
+      enabled: false
+      automatic_activation: false
+      validation_status: pending_cuda_memory_preflight
+      cuda_memory_preflight_passed: false
+      output_size_tix: [128, 128, 128]
+      halo_tix: [16, 16, 16]
+      prospective_model_input_size_tix: [160, 160, 160]
+      boundary_mode: constant_zero_with_explicit_valid_mask
+      output_rule: central_complete_logits_then_direct_argmax
+      performance_commitment: false
+    full_volume_status: planned_not_executed
+    normalization_owner: child_runtime
+    amplitude_transport: raw_float32
+
+  checkpoint_contract:
+    parameter_count: 174697519
+    f_final_channels: 96
+    head_count: 11
+    head_input: shared_F_final_only
+    one_forward_returns_all_tasks: true
+    teacher_required_at_forward: false
+    time_depth_table_required_at_forward: false
+    classification_decode: complete_logits_direct_argmax_dim1
+
+  input_contract:
+    required: [seismic]
+    optional_well: [wells, well_curve_mask, well_mask, well_md, well_md_m]
+    optional_trajectory:
+      - trajectory
+      - trajectory_metric_xyz
+      - trajectory_tvd_m
+      - trajectory_mask
+      - well_parent_index
+      - well_kickoff_md_m
+    forbidden:
+      - td_teacher
+      - time_depth
+      - time_depth_table
+      - checkshot
+      - vsp
+      - velocity_model
+      - t0
+
+  outputs:
+    fault_logits: {kind: classification, channels: 2, class_names: [background, fault]}
+    unconformity_logits: {kind: classification, channels: 2, class_names: [background, unconformity]}
+    facies_logits: {kind: classification, channels: 7, class_names: [background, upper_ns, middle_ns, lower_ns, rijnland_chalk, scruff, zechstein]}
+    channel_logits: {kind: classification, channels: 5, class_names: [background, channel_1, channel_2, channel_3, channel_4]}
+    karst_logits: {kind: classification, channels: 2, class_names: [background, karst]}
+    rgt: {kind: regression, channels: 1}
+    impedance: {kind: regression, channels: 1}
+    porosity: {kind: regression, channels: 1}
+    well_match: {kind: regression, channels: 1}
+    connectivity_logits: {kind: classification, channels: 2, class_names: [background, connected]}
+    uncertainty: {kind: regression, channels: 1}

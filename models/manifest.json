@@ -1,34 +1,8 @@
 {
   "schema_version": 1,
-  "models": [
-    {
-      "name": "FaultSeg",
-      "path": "接口模型/faultSeg-main/model/faultseg-best.pt",
-      "size": 5849160,
-      "sha256": "d695568a4a94106887f9c191d0edac74335971db8746ec9a2c26aa52eaf5cdcc",
-      "git_lfs": false
-    },
-    {
-      "name": "SurfaceSeg SegFormer Base",
-      "path": "接口模型/seismic_surface_seg/models/segformer-base/best.pt",
-      "size": 44789203,
-      "sha256": "1b452d14a9d4248618bc4398f36efcabdc832ed1e6f25f976fa9768e0c804d1b",
-      "git_lfs": true
-    },
-    {
-      "name": "SurfaceSeg SegFormer Refine",
-      "path": "接口模型/seismic_surface_seg/models/segformer-refine/best.pt",
-      "size": 44789203,
-      "sha256": "1c04d5015b7edefc6f1596b5126106a834f8093caf3d6d65cb5a6415b468e5b1",
-      "git_lfs": true
-    },
-    {
-      "name": "SurfaceSeg Mask2Former",
-      "path": "接口模型/seismic_surface_seg/models/mask2former/best.pt",
-      "size": 1287426890,
-      "sha256": "42512eb28f89b6d9e16073a15b8a3ab97f802c1a2081ee3aa48cba5742023d17",
-      "git_lfs": true
-    }
-  ]
+  "mode": "interfaces_only",
+  "weights_attached": false,
+  "models": [],
+  "deferred_registry": "interfaces/model_registry.json",
+  "note": "任务模型权重未随独立平台抽离；此清单故意为空，避免把缺失权重误报为已部署。"
 }
-

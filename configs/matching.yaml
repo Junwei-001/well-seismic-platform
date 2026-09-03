@@ -19,12 +19,37 @@ matching:
     preferred: [provided_time_depth, sonic_integrated, constant_velocity, none]
     constant_velocity: null
     allow_low_confidence_constant_velocity: false
+    provided_time_depth_qc:
+      minimum_points: 3
+      duplicate_depth_tolerance_m: 0.01
+      duplicate_time_conflict_ms: 4.0
+      minimum_interval_velocity_m_s: 1200.0
+      maximum_interval_velocity_m_s: 6500.0
+      equal_authority_conflict_ms: 12.0
+      # Capability-first: source values stay immutable, while one or more
+      # physically bridgeable isolated picks may be quarantined with a QC
+      # receipt instead of blocking the whole well tie.
+      repair_isolated_outliers: true
+      isolated_outlier_threshold_ms: 12.0
+      maximum_repair_fraction: 0.25
+    relative_sonic_without_time_depth:
+      enabled: true
+      initial_velocity_m_s: 3000.0
+      # A sonic integration is already the physical time prior.  Correlation
+      # may only make a local, unique correction; it may not re-datum the well.
+      max_static_shift_ms: 120.0
+      max_accepted_static_shift_ms: 80.0
+      min_correlation: 0.35
+      min_peak_prominence: 0.05
+      static_shift_ambiguity_exclusion_ms: 32.0
+      static_shift_boundary_margin_ms: 8.0
+      min_overlap_samples: 24
     sonic:
       enabled: true
       reference_depth_m: 0.0
       datum_time_ms: 0.0
       datum_is_explicit: false
-      replacement_velocity_m_s: 2000.0
+      replacement_velocity_m_s: null
       min_velocity_m_s: 500.0
       max_velocity_m_s: 8000.0
       max_gap_m: 30.0
@@ -34,8 +59,12 @@ matching:
       wavelet_duration_ms: 128.0
       max_reflectivity_gap_ms: 30.0
       max_static_shift_ms: 120.0
+      max_accepted_static_shift_ms: 80.0
       min_overlap_samples: 24
-      min_correlation: 0.20
+      min_correlation: 0.35
+      min_peak_prominence: 0.05
+      static_shift_ambiguity_exclusion_ms: 32.0
+      static_shift_boundary_margin_ms: 8.0
       training_min_correlation: 0.55
       allow_estimated_for_training: false
   patch:

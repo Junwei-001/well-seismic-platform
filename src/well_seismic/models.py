@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,7 @@ class WellLog:
     version: str = "unknown"
     issues: list[str] = field(default_factory=list)
     processing_steps: list[str] = field(default_factory=list)
+    identifiers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -64,6 +65,17 @@ class WellHead:
     crs: str | None = None
     source: str = ""
     confidence: float = 1.0
+    vertical_datum_unit: str | None = None
+    # X/Y are canonical metres only.  Unknown source units leave X/Y unset so
+    # the record can still contribute non-spatial metadata without entering a
+    # spatial well-to-seismic match.
+    horizontal_unit: str = "unknown"
+    coordinate_issues: list[str] = field(default_factory=list)
+    source_x: float | None = None
+    source_y: float | None = None
+    source_crs: str | None = None
+    coordinate_transform: dict[str, Any] = field(default_factory=dict)
+    identifiers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,6 +92,14 @@ class Trajectory:
     source: str = ""
     confidence: float = 1.0
     issues: list[str] = field(default_factory=list)
+    source_units: dict[str, str] = field(default_factory=dict)
+    unit_conversions: list[str] = field(default_factory=list)
+    unit_provenance: dict[str, str] = field(default_factory=dict)
+    vertical_semantics: dict[str, Any] = field(default_factory=dict)
+    source_crs: str | None = None
+    horizontal_crs: str | None = None
+    coordinate_transform: dict[str, Any] = field(default_factory=dict)
+    identifiers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -89,10 +109,18 @@ class TimeDepthTable:
     source: str
     depth: np.ndarray
     time: np.ndarray
+    source_kind: str = "unknown"
     depth_domain: str = "md"
-    depth_unit: str = "m"
-    time_unit: str = "ms"
+    depth_unit: str = "unknown"
+    time_unit: str = "unknown"
     confidence: float = 0.95
+    depth_datum: str | None = None
+    depth_convention: str | None = None
+    time_reference: str = "unknown"
+    time_domain: str = "unknown"
+    correction_state: str = "unknown"
+    replacement_velocity_mps: float | None = None
+    md_offset_to_trajectory_m: float | None = None
 
 
 @dataclass
@@ -114,6 +142,9 @@ class SeismicGeometry:
     profile: str
     confidence: float
     issues: list[str] = field(default_factory=list)
+    source_crs: str | None = None
+    horizontal_crs: str | None = None
+    coordinate_transform: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -124,7 +155,9 @@ class MatchRecord:
     seismic_source: str
     md: float
     tvd: float | None
-    tvdss: float | None
+    z_msl_m: float | None
+    depth_below_msl_m: float | None
+    depth_below_srd_m: float | None
     x: float
     y: float
     trace_index: int
@@ -143,6 +176,7 @@ class MatchRecord:
     vertical_uncertainty_ms: float | None = None
     seismic_window_valid: bool = False
     coordinate_reference_verified: bool = False
+    vertical_datum_verified: bool = False
     training_eligible: bool = False
 
     def to_dict(self) -> dict[str, Any]:

@@ -30,6 +30,7 @@ def load_config(config_dir: str | Path, manifest: str | Path | dict[str, Any]) -
         "units.yaml",
         "segy_profiles.yaml",
         "well_schema.yaml",
+        "vertical_datum.yaml",
         "preprocessing.yaml",
         "matching.yaml",
         "fusion.yaml",

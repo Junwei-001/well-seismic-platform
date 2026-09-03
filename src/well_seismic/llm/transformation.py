@@ -8,16 +8,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..content_identity import canonical_sha256
 from .generation import StructuredGenerator
+from .privacy import issue_local_paths, sanitize_llm_payload
 
 
-ALLOWED_OPERATIONS = {
-    "unit_scale",
-    "curve_alias",
-    "well_alias",
-    "field_alias",
-    "null_value",
-}
+# Persistent transformations are intentionally narrower than the in-memory
+# decision helpers.  A model may select an existing unit conversion, but it may
+# not invent aliases, null sentinels, or new numerical transforms that would
+# affect every later task after activation.
+ALLOWED_OPERATIONS = {"unit_scale"}
+TRANSFORMATION_POLICY_CONTRACT_VERSION = "well-seismic.llm-transformation-policy.v1"
 
 TRANSFORMATION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -51,6 +52,27 @@ TRANSFORMATION_SCHEMA: dict[str, Any] = {
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def transformation_config_sha256(config: dict[str, Any]) -> str:
+    """Bind a draft to the transformation policy that validated it."""
+
+    return canonical_sha256(
+        {
+            "contract_version": TRANSFORMATION_POLICY_CONTRACT_VERSION,
+            "allowed_operations": sorted(ALLOWED_OPERATIONS),
+            "conversions": config.get("conversions", {}),
+        }
+    )
+
+
+def _operations_sha256(operations: list[dict[str, Any]]) -> str:
+    return canonical_sha256(
+        {
+            "contract_version": TRANSFORMATION_POLICY_CONTRACT_VERSION,
+            "operations": operations,
+        }
+    )
 
 
 def _known_unit_operation(message: str, config: dict[str, Any]) -> dict[str, Any] | None:
@@ -87,7 +109,10 @@ def _fallback_plan(issue: dict[str, Any], config: dict[str, Any]) -> dict[str, A
     }
 
 
-def _validate_operation(operation: dict[str, Any]) -> list[str]:
+def _validate_operation(
+    operation: dict[str, Any],
+    conversions: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
     op = str(operation.get("op", ""))
     if op not in ALLOWED_OPERATIONS:
@@ -103,15 +128,31 @@ def _validate_operation(operation: dict[str, Any]) -> list[str]:
             errors.append("比例因子超出安全范围")
         if op != "unit_scale" and (scale != 1.0 or offset != 0.0):
             errors.append("非单位操作不得携带数值变换")
+        if op == "unit_scale":
+            source = str(operation.get("from_value", "")).strip()
+            target = str(operation.get("to_value", "")).strip()
+            rule = (conversions or {}).get(f"{source}->{target}")
+            if not isinstance(rule, dict):
+                errors.append("单位换算不在平台知识库白名单中")
+            else:
+                expected_scale = float(rule.get("scale", 1.0))
+                expected_offset = float(rule.get("offset", 0.0))
+                if not math.isclose(scale, expected_scale, rel_tol=1e-12, abs_tol=1e-12):
+                    errors.append("比例因子与平台知识库不一致")
+                if not math.isclose(offset, expected_offset, rel_tol=1e-12, abs_tol=1e-12):
+                    errors.append("偏移量与平台知识库不一致")
     except (TypeError, ValueError):
         errors.append("比例或偏移不是有效数字")
     return errors
 
 
-def _auto_tests(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _auto_tests(
+    operations: list[dict[str, Any]],
+    conversions: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     tests: list[dict[str, Any]] = []
     for index, operation in enumerate(operations, start=1):
-        errors = _validate_operation(operation)
+        errors = _validate_operation(operation, conversions)
         if operation.get("op") == "unit_scale" and not errors:
             scale = float(operation["scale"])
             offset = float(operation["offset"])
@@ -157,6 +198,15 @@ def create_transformation_draft(
     generation_error = ""
     if generator is not None:
         try:
+            outbound_issue = sanitize_llm_payload(
+                {
+                    "stage": issue.get("stage"),
+                    "severity": issue.get("severity"),
+                    "title": issue.get("title"),
+                    "message": issue.get("message"),
+                },
+                known_paths=issue_local_paths(issue),
+            )
             plan, metadata = generator.generate_json(
                 system_prompt=(
                     "你是井震数据工程转换适配器生成器。只能输出给定JSON契约中的白名单操作；"
@@ -164,10 +214,7 @@ def create_transformation_draft(
                     "证据不足时operations返回空数组。所有数值都将被本地校验并等待人工启用。"
                 ),
                 payload={
-                    "stage": issue.get("stage"),
-                    "severity": issue.get("severity"),
-                    "title": issue.get("title"),
-                    "message": issue.get("message"),
+                    **outbound_issue,
                     "allowed_operations": sorted(ALLOWED_OPERATIONS),
                     "known_unit_conversions": config.get("conversions", {}),
                 },
@@ -181,8 +228,10 @@ def create_transformation_draft(
 
     raw_operations = plan.get("operations", [])
     operations = [dict(item) for item in raw_operations if isinstance(item, dict)][:6]
-    tests = _auto_tests(operations)
+    tests = _auto_tests(operations, config.get("conversions", {}))
     valid = bool(operations) and all(test["passed"] for test in tests)
+    config_sha256 = transformation_config_sha256(config)
+    operations_sha256 = _operations_sha256(operations)
     return {
         "id": uuid.uuid4().hex,
         "task_id": task_id,
@@ -191,6 +240,9 @@ def create_transformation_draft(
         "explanation": str(plan.get("explanation", ""))[:800],
         "confidence": max(0.0, min(1.0, float(plan.get("confidence", 0.0)))),
         "operations": operations,
+        "config_sha256": config_sha256,
+        "operations_sha256": operations_sha256,
+        "validation_contract": TRANSFORMATION_POLICY_CONTRACT_VERSION,
         "generated_code": _code_preview(operations),
         "tests": tests,
         "valid": valid,
@@ -204,9 +256,31 @@ def create_transformation_draft(
     }
 
 
-def activate_transformation(draft: dict[str, Any], registry_path: Path) -> None:
+def activate_transformation(
+    draft: dict[str, Any],
+    registry_path: Path,
+    config: dict[str, Any],
+) -> None:
     if not draft.get("valid"):
         raise ValueError("转换草案未通过自动验证")
+    current_config_sha256 = transformation_config_sha256(config)
+    if draft.get("config_sha256") != current_config_sha256:
+        raise ValueError("转换配置已变化，请重新生成并验证草案")
+    raw_operations = draft.get("operations")
+    if not isinstance(raw_operations, list) or not raw_operations or len(raw_operations) > 6:
+        raise ValueError("转换草案操作结构无效")
+    operations = [dict(item) for item in raw_operations if isinstance(item, dict)]
+    if len(operations) != len(raw_operations):
+        raise ValueError("转换草案操作结构无效")
+    if draft.get("operations_sha256") != _operations_sha256(operations):
+        raise ValueError("转换草案内容已变化，请重新生成并验证草案")
+    tests = _auto_tests(operations, config.get("conversions", {}))
+    if not all(test["passed"] for test in tests):
+        raise ValueError("转换草案未通过当前配置的自动验证")
+    draft["tests"] = tests
+    draft["config_sha256"] = current_config_sha256
+    draft["operations_sha256"] = _operations_sha256(operations)
+    draft["validation_contract"] = TRANSFORMATION_POLICY_CONTRACT_VERSION
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     existing: list[dict[str, Any]] = []
     if registry_path.is_file():
@@ -235,7 +309,10 @@ def apply_active_transformations(config: dict[str, Any], config_dir: str | Path)
             op = operation.get("op")
             source = str(operation.get("from_value", "")).strip()
             target = str(operation.get("to_value", "")).strip()
-            if not source or not target or _validate_operation(operation):
+            if not source or not target or _validate_operation(
+                operation,
+                config.get("conversions", {}),
+            ):
                 continue
             if op == "unit_scale":
                 config.setdefault("conversions", {})[f"{source}->{target}"] = {

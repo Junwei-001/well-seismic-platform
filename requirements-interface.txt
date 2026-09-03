@@ -1,0 +1,10 @@
+# Minimal local development/runtime dependencies for the interface shell.
+numpy>=1.24
+PyYAML>=6
+pyproj==3.7.2
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# Optional visualization/SEG-Y adapters can be installed separately:
+# plotly>=5.24
+# segyio==1.9.14
+# trimesh>=4
