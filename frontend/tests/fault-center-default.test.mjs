@@ -87,7 +87,7 @@ test("resource exhaustion remains a visible failed full-survey run", () => {
 
 test("prediction polling keeps the durable task running across transient timeouts", () => {
   const waitForPrediction = appSource.match(
-    /async function waitForPrediction[\s\S]*?\n}\n\nasync function reattachPredictionTask/,
+    /async function waitForPrediction[\s\S]*?\r?\n}\r?\n\r?\nasync function reattachPredictionTask/,
   )?.[0] || "";
   assert.match(waitForPrediction, /while \(!componentUnmounted\)/);
   assert.match(waitForPrediction, /isRetryableTaskStatusError\(error\)/);

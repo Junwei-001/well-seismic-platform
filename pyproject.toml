@@ -7,11 +7,12 @@ name = "well-seismic-pipeline"
 version = "0.3.0"
 description = "Portable well-seismic data preparation, visualization and interpretation platform"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.24", "PyYAML>=6", "pyproj==3.7.2"]
+dependencies = ["numpy>=1.24", "PyYAML>=6", "pyproj==3.7.2", "jsonschema>=4.23,<5"]
 
 [project.optional-dependencies]
+agent = ["dvc==3.67.1", "scipy>=1.10,<2", "pandas>=2,<4", "segyio==1.9.14", "lasio==0.32"]
 full = ["pandas>=2", "scipy>=1.10", "xarray>=2023.1"]
-test = ["pytest>=7"]
+test = ["pytest>=7", "httpx>=0.28,<1"]
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 faultseg = ["torch>=2.4"]
 surface-seg = ["torch>=2.1,<3", "transformers==4.37.1", "segyio==1.9.14", "matplotlib>=3.8,<3.9"]

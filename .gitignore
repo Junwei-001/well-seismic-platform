@@ -8,6 +8,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.runtime-cache/
 frontend/node_modules/
 runtime/cache/
 runtime/state/*.json

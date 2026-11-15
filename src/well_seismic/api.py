@@ -21,6 +21,7 @@ from urllib.parse import quote
 
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +49,8 @@ from .api_models import (
     ViserSliceRequest,
 )
 from .auto_input import build_explicit_paths_manifest, discover_input_root
+from .dvc_store import DvcVersionStore
+from .huiyan_harness import HuiyanHarness, build_router as build_huiyan_harness_router
 from .candidate_visualization import (
     CANDIDATE_DISPLAY_CONTRACT_VERSION,
     SUPPORTED_CANDIDATE_MODEL_IDS,
@@ -83,6 +86,14 @@ from .faultseg_visualization import (
     DEFAULT_FAULTSEG_SLICE_CACHE,
 )
 from .fusion import build_default_fusion_registry
+from .gaia_chat import GaiaChatSettings, chat_with_gaia
+from .gaia_minimax import GaiaMiniMaxError, GaiaMiniMaxSettings, chat_with_gaia_minimax, is_model_identity_question
+from .gaia_ui import build_router as build_gaia_ui_router
+from .gaia_tasks import (
+    build_router as build_gaia_task_router,
+    is_loopback,
+    transport_configured,
+)
 from .horizontal_registration import (
     HORIZONTAL_REGISTRATION_CONTRACT_VERSION,
     build_horizontal_registration,
@@ -99,7 +110,7 @@ from .layerpulse_exports import (
 from .layerpulse_visualization import evaluate_layerpulse_visualization
 from .llm import build_decision_resolver, build_structured_generator, load_llm_settings
 from .llm.parse_repair import REPAIR_CONTRACT_VERSION, repair_fingerprint
-from .llm.privacy import issue_local_paths, sanitize_llm_payload
+from .llm.privacy import issue_local_paths, sanitize_llm_payload, sanitize_llm_text
 from .llm.transformation import activate_transformation, create_transformation_draft
 from .modeling import (
     ModelInputRequest,
@@ -9634,6 +9645,24 @@ def capabilities() -> dict[str, Any]:
         prediction_runners=_prediction_runners,
     )
     document["artifact_releases"] = _release_document(include_artifacts=False)
+    load_llm_settings(_platform_config)
+    try:
+        gaia_chat = GaiaChatSettings.from_environment()
+    except ValueError:
+        gaia_chat = None
+    try:
+        gaia_minimax = GaiaMiniMaxSettings.from_environment()
+    except GaiaMiniMaxError:
+        gaia_minimax = None
+    document["assistant"] = (
+        gaia_chat.public_status()
+        if gaia_chat is not None and gaia_chat.available
+        else gaia_minimax.public_status() if gaia_minimax is not None else {
+            "available": document["llm"]["available"],
+            "provider": document["llm"]["provider"],
+            "model": document["llm"]["model"],
+        }
+    )
     document["persistence"] = {
         "contract_version": "well-seismic.state-store.v1",
         "backend": "sqlite",
@@ -10422,6 +10451,11 @@ async def upload_raw_well_file(request: Request, filename: str) -> dict[str, Any
         raise HTTPException(status_code=422, detail="上传文件为空")
     if len(content) > 128 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="单个井文件不能超过 128 MiB")
+    return await run_in_threadpool(_store_raw_well_file, safe_name, content)
+
+
+def _store_raw_well_file(safe_name: str, content: bytes) -> dict[str, Any]:
+    """Hash and write upload bytes outside the asynchronous request loop."""
     sha256 = hashlib.sha256(content).hexdigest()
     RAW_WELL_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
     output = RAW_WELL_UPLOAD_ROOT / f"{sha256[:16]}_{safe_name}"
@@ -11758,8 +11792,57 @@ def _assistant_context(task_id: str | None) -> dict[str, Any]:
 @app.post("/api/v1/assistant/chat")
 def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
     settings = load_llm_settings(_platform_config)
-    generator = build_structured_generator(settings)
     context = _assistant_context(request.task_id)
+    gaia_error = ""
+    try:
+        gaia_chat = GaiaChatSettings.from_environment()
+    except ValueError:
+        gaia_chat = None
+        gaia_error = "盖亚对话配置无效"
+    if gaia_chat is not None and gaia_chat.available:
+        try:
+            answer, conversation_id = chat_with_gaia(
+                gaia_chat,
+                question=sanitize_llm_text(request.message),
+                context=sanitize_llm_payload(context),
+                conversation_id=request.conversation_id,
+            )
+            return {
+                "answer": answer,
+                "actions": [],
+                "source": "盖亚对话",
+                "provider": "gaia_open_api",
+                "model": gaia_chat.provider_id,
+                "request_id": "",
+                "conversation_id": conversation_id,
+            }
+        except Exception:
+            gaia_error = "盖亚对话暂不可用"
+    try:
+        gaia_minimax = GaiaMiniMaxSettings.from_environment()
+        if gaia_minimax is not None:
+            answer, conversation_id, actual_model = chat_with_gaia_minimax(
+                gaia_minimax,
+                question=sanitize_llm_text(request.message),
+                context=sanitize_llm_payload(context),
+                conversation_id=request.conversation_id,
+            )
+            return {
+                "answer": answer,
+                "actions": [],
+                "source": (
+                    "后端模型信息（本次调用已核对）"
+                    if is_model_identity_question(sanitize_llm_text(request.message))
+                    else "盖亚 MiniMax（复用配置）"
+                ),
+                "provider": "gaia_minimax",
+                "model": actual_model,
+                "request_id": "",
+                "conversation_id": conversation_id,
+            }
+    except GaiaMiniMaxError as exc:
+        gaia_error = str(exc)
+    generator = build_structured_generator(settings)
     allowed_targets = [
         "overview",
         "preparation",
@@ -11813,10 +11896,12 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
                     if item.get("target") in allowed_targets
                 ],
                 "source": "LLM",
+                "conversation_id": str(request.conversation_id) if request.conversation_id else None,
                 **metadata,
             }
-        except Exception as exc:
-            fallback_error = str(exc)[:300]
+        except Exception:
+            # Provider exceptions may contain request credentials or local paths.
+            fallback_error = "本地备用模型调用失败，请检查后端服务后重试。"
     else:
         fallback_error = "LLM未启用或未完成配置"
     issue_count = (
@@ -11826,7 +11911,9 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
         f"当前任务已记录 {issue_count} 项需要关注的问题。建议先进入“数据准备”，按阶段查看证据；"
         "对无法由知识库确定的映射，可生成受控转换适配器并在自动测试通过后人工启用。"
         if request.task_id
-        else "请先执行数据准备。完成后我可以结合当前任务阶段、问题和放行条件给出诊断。"
+        else (
+            gaia_error or "当前尚未连接 AI 模型，暂时无法进行自由对话。请在后端完成盖亚模型配置后重试。"
+        )
     )
     return {
         "answer": answer,
@@ -11835,8 +11922,77 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
         "provider": "local",
         "model": "workflow-context-v1",
         "request_id": "",
-        "warning": fallback_error,
+        "warning": "; ".join(part for part in (gaia_error, fallback_error) if part),
+        "conversation_id": str(request.conversation_id) if request.conversation_id else None,
     }
+
+
+_harness_root = PROJECT_ROOT / "data" / "huiyan_harness"
+_harness_source_roots = [
+    _harness_root, PROJECT_ROOT / "data" / "gaia_tasks",
+    PROJECT_ROOT / "model_outputs", PROJECT_ROOT / "输出结果",
+]
+_huiyan_harness = HuiyanHarness(
+    _harness_root, config=_platform_config,
+    legacy_root=PROJECT_ROOT / "data" / "gaia_tasks",
+    allowed_output_roots=_harness_source_roots,
+    dvc_store=DvcVersionStore(
+        PROJECT_ROOT / "data" / "huiyan_dvc",
+        allowed_source_roots=_harness_source_roots,
+    ),
+    native={
+        "data_prepare": create_data_preparation_task,
+        "registration_preflight": create_registration_preflight,
+        "registration": create_registration_task,
+        "sample_build": create_sample_building_task,
+        "prediction": create_prediction_task,
+        "task": get_task,
+        "capabilities": capabilities,
+        "visualization": lambda **kwargs: unified_data_visualization(**kwargs),
+    },
+)
+app.include_router(build_huiyan_harness_router(_huiyan_harness))
+
+def assistant_chat_authenticated(request: AssistantChatRequest, *, subject: str) -> dict[str, Any]:
+    from .gaia_agent import chat_with_huiyan_agent
+    try:
+        settings = GaiaMiniMaxSettings.from_environment()
+        if settings is None:
+            raise GaiaMiniMaxError("盖亚本地 MiniMax 配置无效，请检查后端配置文件和已启用的模型。")
+        return chat_with_huiyan_agent(
+            settings, subject=subject,
+            question=sanitize_llm_text(request.message),
+            context=sanitize_llm_payload(_assistant_context(request.task_id)),
+            conversation_id=request.conversation_id, harness=_huiyan_harness, request_id=request.request_id,
+        )
+    except GaiaMiniMaxError as exc:
+        return {"answer": str(exc), "actions": [], "executions": [],
+                "source": "慧眼操作助手", "provider": "unavailable", "model": "",
+                "request_id": "", "conversation_id": str(request.conversation_id) if request.conversation_id else None}
+
+
+app.include_router(build_gaia_ui_router(
+    PROJECT_ROOT / "data" / "gaia_tasks", FRONTEND_DIST,
+    get_task=get_task, capabilities=capabilities, health=health, assistant=assistant_chat,
+    assistant_owned=assistant_chat_authenticated, execution=_huiyan_harness.get_run,
+    visualization=lambda task_id, **kwargs: unified_data_visualization(task_id=task_id, embed=True, **kwargs),
+    manifest=lambda task_id: get_prediction_artifact(task_id, "snapshot_manifest"),
+))
+
+app.include_router(build_gaia_task_router(
+    PROJECT_ROOT / "data" / "gaia_tasks", create_data_preparation_task, get_task,
+))
+
+
+@app.middleware("http")
+async def isolate_gaia_transport(request: Request, call_next):
+    # Legacy desktop routes have no user authentication. Do not expose them
+    # remotely when enabling the connector; Gaia uses owner-scoped UI routes.
+    if transport_configured() and not request.url.path.startswith("/api/v1/gaia/"):
+        if not request.client or not is_loopback(request.client.host):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Desktop routes are local only"}, status_code=403)
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)

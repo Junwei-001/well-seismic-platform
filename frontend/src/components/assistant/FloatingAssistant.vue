@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 
-import { chatWithAssistant } from "../../api";
+import { chatWithAssistant, getAssistantExecution, type AssistantExecution } from "../../api";
+import {
+  assistantInput as input,
+  assistantMessages as messages,
+  assistantSending as sending,
+  bindAssistantTask,
+  beginAssistantRequest,
+  isCurrentAssistantRequest,
+  acceptAssistantResponse,
+  rejectAssistantRequest,
+  finishAssistantRequest,
+} from "./conversationState";
 
 interface Props {
   visible: boolean;
@@ -11,27 +22,25 @@ interface Props {
   llmModel?: string;
 }
 
-interface AssistantMessage {
-  role: "assistant" | "user";
-  text: string;
-  source?: string;
-  actions?: Array<{ label: string; target: string }>;
-}
-
 const props = defineProps<Props>();
 const emit = defineEmits<{ navigate: [target: string] }>();
 
-const sending = ref(false);
-const input = ref("");
+const executionBusy = ref("");
+const executionError = ref("");
+const executionLabels: Record<string, string> = {
+  completed: "已完成", running: "执行中", blocked: "条件未满足", failed: "失败",
+};
+async function refreshExecution(receipt: AssistantExecution) {
+  if (!receipt.execution_id) return;
+  executionBusy.value = receipt.execution_id;
+  executionError.value = "";
+  try { Object.assign(receipt, await getAssistantExecution(receipt.execution_id)); }
+  catch { executionError.value = "暂时无法刷新执行状态，请稍后重试。"; }
+  finally { executionBusy.value = ""; }
+}
+
 const messagesRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
-
-const messages = ref<AssistantMessage[]>([
-  {
-    role: "assistant",
-    text: "你好，这里是慧眼AI。我会结合地震、测井与井轨迹数据诊断质量问题、解释预处理告警，并在执行转换前说明依据。",
-  },
-]);
 
 const quickPrompts = [
   { label: "诊断当前数据", prompt: "检查当前任务的数据质量，并告诉我最需要先处理的问题" },
@@ -40,7 +49,7 @@ const quickPrompts = [
 ];
 
 const connectionLabel = computed(() =>
-  props.llmAvailable ? `模型已连接${props.llmModel ? ` · ${props.llmModel}` : ""}` : "本地规则模式",
+  props.llmAvailable ? `模型已配置${props.llmModel ? ` · ${props.llmModel}` : ""}` : "本地规则模式",
 );
 
 function scrollToBottom() {
@@ -54,33 +63,32 @@ function navigate(target: string) {
 
 async function sendMessage(message = input.value) {
   const text = message.trim();
-  if (!text || sending.value) return;
-  messages.value.push({ role: "user", text });
-  input.value = "";
-  sending.value = true;
+  const request = beginAssistantRequest(text, props.taskId || "");
+  if (!request) return;
   await nextTick();
+  if (!isCurrentAssistantRequest(request)) return;
   scrollToBottom();
   try {
-    const response = await chatWithAssistant(text, props.taskId || undefined);
-    messages.value.push({
-      role: "assistant",
-      text: response.answer,
-      source: response.source,
-      actions: response.actions,
-    });
+    const response = await chatWithAssistant(text, request.taskId || undefined, request.conversationId, request.controller.signal, request.requestId);
+    acceptAssistantResponse(request, response);
   } catch (error) {
-    messages.value.push({
-      role: "assistant",
-      text: error instanceof Error ? error.message : "助手请求失败，请检查后端连接。",
-      source: "请求异常",
-    });
+    rejectAssistantRequest(request, error);
   } finally {
-    sending.value = false;
-    await nextTick();
-    scrollToBottom();
-    inputRef.value?.focus();
+    if (finishAssistantRequest(request)) {
+      await nextTick();
+      if (isCurrentAssistantRequest(request) && props.visible) {
+        scrollToBottom();
+        inputRef.value?.focus();
+      }
+    }
   }
 }
+
+watch(
+  () => props.taskId,
+  (taskId) => bindAssistantTask(taskId || ""),
+  { immediate: true, flush: "sync" },
+);
 
 watch(
   () => props.visible,
@@ -134,7 +142,20 @@ watch(
         </span>
         <div class="message-bubble">
           <p>{{ message.text }}</p>
+          <p v-if="message.warning" class="assistant-warning" role="status">{{ message.warning }}</p>
           <small v-if="message.source">来源 · {{ message.source }}</small>
+          <small v-if="message.model">{{ message.modelLabel }} · {{ message.model }}</small>
+          <section v-if="message.executions?.length" class="assistant-executions" aria-label="实际操作记录">
+            <strong>实际操作记录</strong>
+            <article v-for="(execution, n) in message.executions" :key="execution.execution_id || n" class="execution-record">
+              <div>{{ execution.operation }} · {{ executionLabels[execution.status] || execution.status }}</div>
+              <p v-if="execution.error" class="assistant-warning">{{ execution.error.message }}</p>
+              <small v-if="execution.task_id">任务：{{ execution.task_id }}</small>
+              <details><summary>查看回传结果</summary><pre>{{ JSON.stringify(execution.result, null, 2) }}</pre></details>
+              <button v-if="execution.execution_id" type="button" :disabled="!!executionBusy" @click="refreshExecution(execution)">刷新执行状态</button>
+            </article>
+            <p v-if="executionError" role="alert">{{ executionError }}</p>
+          </section>
           <nav v-if="message.actions?.length" class="strata-assistant-message-actions">
             <button v-for="action in message.actions" :key="action.target" type="button" @click="navigate(action.target)">{{ action.label }} <span>→</span></button>
           </nav>
@@ -164,6 +185,11 @@ watch(
 </template>
 
 <style scoped>
+.assistant-executions { display: grid; gap: 8px; margin-top: 12px; }
+.execution-record { display: block !important; padding: 10px; border: 1px solid #d8e2ea; border-radius: 8px; }
+.execution-record pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 12px; }
+.execution-record button { margin-top: 8px; padding: 5px 8px; border: 1px solid #cfe0e6; border-radius: 5px; background: #f8fcff; cursor: pointer; }
+
 .strata-assistant-workspace {
   display: grid;
   width: 100%;
@@ -265,7 +291,8 @@ watch(
 .user .message-avatar { background: #547696; }
 .message-bubble { padding: 13px 16px; background: #fff; border: 1px solid #dde8ec; border-radius: 5px 15px 15px; box-shadow: 0 7px 22px rgb(44 75 96 / 6%); }
 .user .message-bubble { color: #fff; background: #285b7f; border-color: #285b7f; border-radius: 15px 5px 15px 15px; }
-.message-bubble p { margin: 0; color: inherit; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
+.message-bubble p { margin: 0; color: inherit; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-bubble .assistant-warning { margin-top: 10px; padding: 9px 11px; color: #7a4b13; font-size: 13px; background: #fff6e8; border: 1px solid #edd4ab; border-radius: 8px; }
 .message-bubble > small { display: block; margin-top: 7px; color: #84939f; font-size: 12px; }
 .user .message-bubble > small { color: rgb(255 255 255 / 70%); }
 .strata-assistant-message-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }

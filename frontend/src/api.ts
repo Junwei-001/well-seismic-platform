@@ -1,3 +1,5 @@
+import { nativeApiUrl } from "./gaiaEmbed";
+
 export interface SurveyAttestationPayload {
   contract_version: "well-seismic.survey-attestation.v1";
   declared_srd_elevation_m: number;
@@ -931,7 +933,24 @@ export interface TransformationDraft {
   generation_error: string;
 }
 
+export interface AssistantExecution {
+  execution_id?: string;
+  operation: string;
+  status: "completed" | "running" | "blocked" | "failed";
+  task_id?: string;
+  project_id?: string;
+  revision_id?: string;
+  result: Record<string, unknown>;
+  error?: { code: string; message: string };
+}
+
+export function getAssistantExecution(id: string): Promise<AssistantExecution> {
+  return jsonRequest(`/api/v1/assistant/executions/${encodeURIComponent(id)}`);
+}
+
 export interface AssistantResponse {
+  request_state?: "in_progress" | "finished";
+  executions?: AssistantExecution[];
   answer: string;
   actions: Array<{ label: string; target: string }>;
   source: string;
@@ -939,6 +958,7 @@ export interface AssistantResponse {
   model: string;
   request_id: string;
   warning?: string;
+  conversation_id?: string | null;
 }
 
 export interface WellEntity {
@@ -1289,6 +1309,13 @@ export interface DataFlowContract {
 }
 
 export interface Capabilities {
+  assistant?: {
+    available: boolean;
+    provider: string;
+    model: string;
+    credential_configured?: boolean;
+    credential_policy?: string;
+  };
   workflow: Array<{ id: string; name: string; purpose: string }>;
   plugin_contract: {
     entry_point_group: string;
@@ -1601,7 +1628,7 @@ async function jsonRequest<T>(url: string, init: JsonRequestInit = {}): Promise<
   const combinedSignal = combineAbortSignal(externalSignal, timeoutMs);
 
   try {
-    const response = await fetch(url, { ...fetchInit, signal: combinedSignal.signal });
+    const response = await fetch(nativeApiUrl(url), { ...fetchInit, signal: combinedSignal.signal });
     const requestId = responseRequestId(response);
     const rawText = await response.text();
 
@@ -1883,10 +1910,12 @@ export function activateTransformationDraft(draftId: string): Promise<Transforma
   });
 }
 
-export function chatWithAssistant(message: string, taskId?: string): Promise<AssistantResponse> {
+export function chatWithAssistant(message: string, taskId?: string, conversationId?: string, signal?: AbortSignal, requestId?: string): Promise<AssistantResponse> {
   return jsonRequest("/api/v1/assistant/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, task_id: taskId || null }),
+    body: JSON.stringify({ message, task_id: taskId || null, conversation_id: conversationId || null, request_id: requestId || crypto.randomUUID() }),
+    signal,
+    timeoutMs: 270_000,
   });
 }
