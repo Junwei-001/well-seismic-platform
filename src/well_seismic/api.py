@@ -11959,10 +11959,18 @@ def assistant_chat_authenticated(request: AssistantChatRequest, *, subject: str)
         settings = GaiaMiniMaxSettings.from_environment()
         if settings is None:
             raise GaiaMiniMaxError("盖亚本地 MiniMax 配置无效，请检查后端配置文件和已启用的模型。")
+        binding = _huiyan_harness.assistant_context(subject, request.task_id)
+        # Keep the authoritative binding ahead of the bounded task summary.
+        context = {"harness": sanitize_llm_payload(binding)}
+        context.update({
+            key: value for key, value in sanitize_llm_payload(
+                _assistant_context(request.task_id)
+            ).items() if key != "harness"
+        })
         return chat_with_huiyan_agent(
             settings, subject=subject,
             question=sanitize_llm_text(request.message),
-            context=sanitize_llm_payload(_assistant_context(request.task_id)),
+            context=context,
             conversation_id=request.conversation_id, harness=_huiyan_harness, request_id=request.request_id,
         )
     except GaiaMiniMaxError as exc:

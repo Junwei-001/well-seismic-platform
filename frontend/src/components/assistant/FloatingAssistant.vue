@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 
 import { chatWithAssistant, getAssistantExecution, type AssistantExecution } from "../../api";
+import { assistantTaskResultReference, type AssistantTaskReference } from "../../assistantTaskResult";
 import {
   assistantInput as input,
   assistantMessages as messages,
@@ -20,10 +21,18 @@ interface Props {
   contextLabel: string;
   llmAvailable: boolean;
   llmModel?: string;
+  canOpenTaskResults?: boolean;
+  resultOpening?: boolean;
+  resultError?: string;
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits<{ navigate: [target: string] }>();
+const emit = defineEmits<{ navigate: [target: string]; openTaskResult: [reference: AssistantTaskReference] }>();
+
+function openTaskResult(receipt: AssistantExecution) {
+  const reference = assistantTaskResultReference(receipt);
+  if (reference && props.canOpenTaskResults && !props.resultOpening && !sending.value) emit("openTaskResult", reference);
+}
 
 const executionBusy = ref("");
 const executionError = ref("");
@@ -135,6 +144,7 @@ watch(
     </section>
 
     <section ref="messagesRef" class="strata-assistant-messages" aria-live="polite" :aria-busy="sending">
+      <p v-if="resultError" class="assistant-result-error" role="alert">{{ resultError }}</p>
       <article v-for="(message, index) in messages" :key="index" :class="message.role">
         <span class="message-avatar" aria-hidden="true">
           <svg v-if="message.role === 'assistant'" viewBox="0 0 28 28"><path d="M4 9c4-3 7 2 10 0s6-3 10 0M4 14c4-3 7 2 10 0s6-3 10 0M4 19c4-3 7 2 10 0s6-3 10 0" /><path d="M14 5v15c0 2 2 3 5 4" /></svg>
@@ -152,6 +162,7 @@ watch(
               <p v-if="execution.error" class="assistant-warning">{{ execution.error.message }}</p>
               <small v-if="execution.task_id">任务：{{ execution.task_id }}</small>
               <details><summary>查看回传结果</summary><pre>{{ JSON.stringify(execution.result, null, 2) }}</pre></details>
+              <button v-if="canOpenTaskResults && assistantTaskResultReference(execution)" type="button" :disabled="resultOpening || sending" @click="openTaskResult(execution)">{{ resultOpening ? "正在打开…" : "查看任务结果" }}</button>
               <button v-if="execution.execution_id" type="button" :disabled="!!executionBusy" @click="refreshExecution(execution)">刷新执行状态</button>
             </article>
             <p v-if="executionError" role="alert">{{ executionError }}</p>
@@ -185,6 +196,7 @@ watch(
 </template>
 
 <style scoped>
+.assistant-result-error { margin: 0; padding: 10px 18px; color: #9c2d20; background: #fff3ef; }
 .assistant-executions { display: grid; gap: 8px; margin-top: 12px; }
 .execution-record { display: block !important; padding: 10px; border: 1px solid #d8e2ea; border-radius: 8px; }
 .execution-record pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font-size: 12px; }

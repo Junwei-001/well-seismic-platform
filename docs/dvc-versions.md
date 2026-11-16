@@ -2,6 +2,17 @@
 
 `well_seismic.dvc_store.DvcVersionStore` 将可信服务端输入、参数文件和结果文件封存为独立的数据版本。每个版本实际执行 `dvc init --no-scm`、`dvc add data` 和 `dvc status --json`，保存真实 `.dvc` 指针和内容寻址缓存；缺少 DVC 或命令失败会返回错误，不生成成功凭据。
 
+## 安装与状态核对
+
+DVC 由 `pyproject.toml` 的 `agent` extra 声明（`dvc==3.67.1`）。基础接口的 `.[web]`、`requirements-interface.txt` 或 BAT 安装并不包含它。现有开发环境复用项目解释器；首次配置完整任务1环境时执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[web,agent]"
+.\.venv\Scripts\python.exe -m dvc --version
+```
+
+服务端与该命令须使用同一解释器。认证后的 `dvc_status` 动作返回实际 `available`、`version`、`mode` 和 `git_revision_history`；命令不可执行时 `available=false`，不生成成功归档回执。安装/状态可用仅是前提，还须验证 A/B 归档、比较和恢复。
+
 ## 认证和边界
 
 - `subject` 必须来自服务端已认证身份，不能信任请求体中的用户标识。owner + project 的完整 SHA-256 决定私有目录，所有查询、比较、恢复和内部路径解析都重新限制到这个范围。
@@ -31,7 +42,9 @@ private_inputs = store.resolve_restored_files(subject, project_id, restored["res
 
 ## 运行与明确限制
 
-当前实现是本机 DVC 内容缓存和应用层不可变版本索引，显式使用 **no-SCM**，不会进行 Git add、Git commit 或 push。它不宣称具备 Git 历史、远程 DVC push/pull、多机灾备或模型训练功能。生产远程存储及其凭证应另行由管理员配置，不得写入前端或仓库。
+当前实现是本机 DVC 内容缓存和应用层不可变版本索引，显式使用 **no-SCM**，不会进行 Git add、Git commit 或 push。本轮数据/结果版本追踪验收覆盖本地归档、差异、恢复和完整性；它不宣称具备 Git 历史、远程 DVC push/pull、多机灾备或模型训练功能。团队共享 remote 属于后续部署配置，当前没有团队远程地址或凭据，不将本地成功表述为远程部署成功。
+
+未来接入共享存储时，remote 及其凭证只由管理员在服务端私有配置中管理，不进入 AI 动作参数、前端或代码仓库。现有版本的 `.dvc/config` 已纳入封存哈希，不能直接对旧版本执行 `dvc remote add` 或改写配置；远程迁移需在新工作区执行并重新核对原始与恢复文件哈希，保留原封存。
 
 Windows 未启用长路径时请选择较短的私有根目录和逻辑文件名；超过安全长度会返回 `path_limit`。内部布局不是接口契约，调用方必须使用 resolver。
 

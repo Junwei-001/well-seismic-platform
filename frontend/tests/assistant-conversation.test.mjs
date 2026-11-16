@@ -11,6 +11,7 @@ const stateSource = await readFile(new URL("../src/components/assistant/conversa
 const componentSource = await readFile(new URL("../src/components/assistant/FloatingAssistant.vue", import.meta.url), "utf8");
 const componentScript = componentSource.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1];
 const componentTemplate = componentSource.match(/<template>([\s\S]*?)<\/template>/)[1];
+const taskReferenceSource = await readFile(new URL("../src/assistantTaskResult.ts", import.meta.url), "utf8");
 const flush = () => new Promise(setImmediate);
 
 // Execute the production state and SFC script with real Vue refs/watchers. Only
@@ -33,8 +34,8 @@ function evaluate(source, imports, globals = {}) {
 
 function harness(t, taskId = "task-a") {
   const state = evaluate(stateSource, { vue });
-  const props = vue.reactive({ taskId, visible: true, contextLabel: "测试工作区", llmAvailable: true, llmModel: "MiniMax-M2.7" });
-  const calls = [];
+  const props = vue.reactive({ taskId, canOpenTaskResults: false, resultOpening: false, resultError: "", visible: true, contextLabel: "测试工作区", llmAvailable: true, llmModel: "MiniMax-M2.7" });
+  const calls = [], events = [];
   const tickBarriers = [];
   const componentVue = { ...vue, nextTick: () => tickBarriers.shift()?.promise ?? vue.nextTick() };
   const scope = vue.effectScope();
@@ -46,11 +47,12 @@ function harness(t, taskId = "task-a") {
   };
   const component = scope.run(() => evaluate(componentScript + `
     exports.sendMessage = sendMessage;
-    exports.bindings = { ...props, connectionLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef };
+    exports.openTaskResult = openTaskResult;
+    exports.bindings = { ...props, connectionLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef, assistantTaskResultReference, openTaskResult };
     exports.inputRef = inputRef;
-  `, { vue: componentVue, "../../api": api, "./conversationState": state }, {
+  `, { vue: componentVue, "../../api": api, "./conversationState": state, "../../assistantTaskResult": evaluate(taskReferenceSource, {}) }, {
     defineProps: () => props,
-    defineEmits: () => () => {},
+    defineEmits: () => (...args) => events.push(args),
   }));
   function pauseNextTick() {
     let resume;
@@ -58,7 +60,7 @@ function harness(t, taskId = "task-a") {
     tickBarriers.push({ promise });
     return resume;
   }
-  return { state, props, calls, pauseNextTick, ...component };
+  return { state, props, calls, events, pauseNextTick, ...component };
 }
 
 function response(answer, conversation_id = "session-a", extra = {}) {
@@ -221,4 +223,26 @@ test("transport retry reuses the operation identity until its receipt is final",
   assert.equal(h.calls[3].args[2], "server-session");
   h.calls[3].resolve(response("new confirmed turn"));
   await next;
+});
+
+test("receipt navigation emits only checked IDs and is unavailable outside the Gaia workspace", t => {
+  const h = harness(t);
+  const receipt = { operation: "sample_build", status: "completed", project_id: "hp_" + "a".repeat(32), task_id: "b".repeat(32),
+    result: {}, viewer_url: "https://untrusted.invalid", owner: "another-user" };
+  h.openTaskResult(receipt);
+  assert.equal(h.events.length, 0);
+  h.props.canOpenTaskResults = true;
+  h.openTaskResult(receipt);
+  assert.equal(h.events.length, 1);
+  assert.equal(h.events[0][0], "openTaskResult");
+  assert.deepEqual(JSON.parse(JSON.stringify(h.events[0][1])), { projectId: receipt.project_id, taskId: receipt.task_id });
+  h.props.resultOpening = true;
+  h.openTaskResult(receipt);
+  h.props.resultOpening = false;
+  h.state.assistantSending.value = true;
+  h.openTaskResult(receipt);
+  h.state.assistantSending.value = false;
+  h.openTaskResult({ ...receipt, status: "blocked" });
+  h.openTaskResult({ ...receipt, task_id: "https://untrusted.invalid" });
+  assert.equal(h.events.length, 1);
 });

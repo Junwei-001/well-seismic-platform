@@ -16,13 +16,14 @@ function evaluate(source, imports, globals) {
   });
   return module.exports;
 }
-function harness(legacy = false, fetchOverride) {
+const taskReferences = evaluate(read("assistantTaskResult.ts"), {}, {});
+function harness(legacy = false, fetchOverride, restoreResult) {
   const calls = [], events = [], messages = [];
   let mounted, unmount;
   const window = { location: { href: `http://localhost${legacy ? "/api/workflow-runs/huiyan/ui/" : "/api/plug/huiyan/ui/"}`, origin: "http://localhost", search: "" }, history: { replaceState() {} }, parent: { postMessage: (...args) => messages.push(args) } };
-  const result = evaluate(bridge + "\nexports.api = { start, openRun, file, busy, error, history, normalizeJob };", {
-    vue: { ...vue, onMounted: (fn) => { mounted = fn; }, onBeforeUnmount: (fn) => { unmount = fn; } }, "../../gaiaEmbed": { isLegacyGaiaEmbedded: legacy },
-  }, { window, defineEmits: () => (...args) => events.push(args), fetch: async (url, init) => {
+  const result = evaluate(bridge + "\nexports.api = { start, openRun, openAssistantResult, file, busy, error, history, normalizeJob };", {
+    vue: { ...vue, onMounted: (fn) => { mounted = fn; }, onBeforeUnmount: (fn) => { unmount = fn; } }, "../../gaiaEmbed": { isLegacyGaiaEmbedded: legacy }, "../../assistantTaskResult": taskReferences,
+  }, { window, defineProps: () => ({ restoreResult }), defineExpose: () => {}, defineEmits: () => (...args) => events.push(args), fetch: async (url, init) => {
     calls.push({ url, init });
     if (fetchOverride) return fetchOverride(url, init);
     const ref = legacy ? R : J;
@@ -220,4 +221,185 @@ test("desktop workflow installation still persists and reports real write failur
   assert.deepEqual(h.writes, [["owned-project", PREP]]);
   assert.equal(h.warnings.length, 1);
   assert.match(h.warnings[0], /Permission denied/);
+});
+
+const PROJECT = "hp_" + "d".repeat(32);
+const reference = { projectId: PROJECT, taskId: REG };
+const ok = data => ({ ok: true, json: async () => ({ status: "ok", data }) });
+function statusJob(overrides = {}) {
+  return { ref: J, kind: "harness", operation: "task_status", status: "completed", project_id: PROJECT, task_id: REG,
+    receipt: { operation: "task_status", status: "completed", project_id: PROJECT, task_id: REG,
+      result: { task: { task_id: REG, status: "completed" } } }, ...overrides };
+}
+test("only complete supported receipts with consistent opaque IDs can offer task navigation", () => {
+  const receipt = { operation: "registration", status: "completed", project_id: PROJECT, task_id: REG, result: {} };
+  assert.equal(taskReferences.assistantTaskResultReference(receipt).taskId, REG);
+  for (const change of [ { status: "failed" }, { status: "running" }, { status: "blocked" }, { operation: "prediction" },
+    { task_id: "../private" }, { project_id: "https://outside.invalid" }, { result: { task_id: SAMPLE } },
+    { result: { project_id: "hp_" + "e".repeat(32) } } ]) {
+    assert.equal(taskReferences.assistantTaskResultReference({ ...receipt, ...change }), null);
+  }
+});
+
+test("AI result navigation registers a read-only current-account job and restores its checked native result", async () => {
+  const h = harness(false, async url => ok(url === "/api/plug/huiyan/actions" ? { ref: J } : url.endsWith(J) ? statusJob() : { items: [statusJob()] }));
+  assert.equal(await h.openAssistantResult({ ...reference, url: "https://outside.invalid", owner: "other" }), true);
+  const post = h.calls.find(call => call.init.method === "POST");
+  assert.equal(post.url, "/api/plug/huiyan/actions");
+  assert.equal(post.init.credentials, "same-origin");
+  const body = JSON.parse(post.init.body);
+  assert.equal(body.operation, "task_status");
+  assert.match(body.operation_id, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(body.arguments, { project_id: PROJECT, task_id: REG });
+  assert.deepEqual(Object.keys(body).sort(), ["arguments", "operation", "operation_id"]);
+  assert.equal(h.events.find(([event]) => event === "completed")[1].taskId, REG);
+  assert.equal(h.messages[0][0].jobRef, J);
+  assert.equal(h.messages[0][1], "http://localhost");
+  assert.equal(h.history.value[0].ref, J);
+  await h.openAssistantResult(reference);
+  assert.equal(h.calls.filter(call => call.init.method === "POST").length, 1, "repeat views reuse the recorded job");
+});
+
+test("legacy mode and invalid references never issue actions or navigate", async () => {
+  for (const [legacy, value] of [[true, reference], [false, { ...reference, taskId: "https://outside.invalid" }], [false, null]]) {
+    const h = harness(legacy);
+    assert.equal(await h.openAssistantResult(value), false);
+    assert.equal(h.calls.length, 0);
+    assert.equal(h.messages.length, 0);
+  }
+});
+
+test("foreign-account or expired-login denial keeps private error details out of the result UI", async () => {
+  const h = harness(false, async () => ({ ok: false, status: 403, json: async () => ({ status: "error", message: "Bearer FAKE_SECRET C:/private" }) }));
+  assert.equal(await h.openAssistantResult(reference), false);
+  assert.equal(h.events.some(([kind]) => kind === "completed"), false);
+  assert.equal(h.messages.length, 0);
+  assert.doesNotMatch(h.error.value, /FAKE_SECRET|private|Bearer/);
+  assert.match(h.error.value, /当前账号/);
+});
+
+test("mismatched task, project, job kind and incomplete native result cannot be restored", async () => {
+  const job = statusJob();
+  for (const broken of [statusJob({ task_id: SAMPLE }), statusJob({ project_id: "hp_" + "e".repeat(32) }),
+    statusJob({ kind: "las" }), statusJob({ receipt: { ...job.receipt, task_id: SAMPLE } }),
+    statusJob({ receipt: { ...job.receipt, result: { task: { task_id: REG, status: "failed" } } } })]) {
+    const h = harness(false, async url => ok(url === "/api/plug/huiyan/actions" ? { ref: J } : broken));
+    assert.equal(await h.openAssistantResult(reference), false);
+    assert.equal(h.events.some(([kind]) => kind === "completed"), false);
+    assert.equal(h.messages.length, 0, "invalid result cannot change the parent selection");
+  }
+});
+
+test("network retry preserves the operation identity and blocks duplicate clicks", async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness(false, async (url, init) => {
+    if (init.method === "POST") {
+      if (h.calls.filter(call => call.init.method === "POST").length === 1) { await pending; throw new Error("private network error"); }
+      return ok({ ref: J });
+    }
+    return ok(url.endsWith(J) ? statusJob() : { items: [] });
+  });
+  const first = h.openAssistantResult(reference);
+  assert.equal(await h.openAssistantResult(reference), false);
+  assert.equal(h.calls.length, 1);
+  release();
+  assert.equal(await first, false);
+  assert.equal(await h.openAssistantResult(reference), true);
+  const posts = h.calls.filter(call => call.init.method === "POST");
+  assert.equal(JSON.parse(posts[0].init.body).operation_id, JSON.parse(posts[1].init.body).operation_id);
+});
+
+test("late action responses after a new selection or unmount cannot navigate or restore", async () => {
+  for (const unmount of [false, true]) {
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    const OTHER = "j_2222222222222222";
+    const h = harness(false, async (url, init) => {
+      if (init.method === "POST") return pending;
+      return ok(url.endsWith(OTHER) ? statusJob({ ref: OTHER }) : { items: [] });
+    });
+    const old = h.openAssistantResult(reference);
+    if (unmount) h.unmount();
+    else await h.openRun(OTHER);
+    release(ok({ ref: J }));
+    assert.equal(await old, false);
+    assert.equal(h.messages.some(([message]) => message.jobRef === J), false);
+    assert.equal(h.events.filter(([kind]) => kind === "completed").length, unmount ? 0 : 1);
+  }
+});
+
+test("App forwards both assistant views through the existing Gaia workspace bar", async () => {
+  const app = read("App.vue");
+  assert.equal((app.match(/@open-task-result="openAssistantTaskResult"/g) || []).length, 2);
+  assert.match(app, /<GaiaWorkspaceBar[^>]+ref="gaiaWorkspaceBar"/);
+  const start = app.indexOf("async function openAssistantTaskResult(");
+  const source = app.slice(start, app.indexOf("\nlet gaiaSelectionEpoch", start));
+  const calls = [], busy = vue.ref(false), drawer = vue.ref(true);
+  const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
+    isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy, assistantResultError: vue.ref(""), assistantDrawerOpen: drawer,
+    gaiaWorkspaceBar: vue.ref({ openAssistantResult: async value => { calls.push(value); return true; } }),
+  });
+  await module.open(reference);
+  assert.equal(calls[0], reference);
+  assert.equal(busy.value, false);
+  assert.equal(drawer.value, false);
+});
+
+test("bridge waits for real native restoration and reports failed restoration without a success event", async () => {
+  for (const success of [true, false]) {
+    let release, entered;
+    const restored = new Promise(resolve => { release = resolve; });
+    const restorationStarted = new Promise(resolve => { entered = resolve; });
+    const h = harness(false, async url => ok(url === "/api/plug/huiyan/actions" ? { ref: J } : url.endsWith(J) ? statusJob() : { items: [] }),
+      async value => { assert.equal(value.taskId, REG); entered(); return restored; });
+    let finished = false;
+    const opened = h.openAssistantResult(reference).then(value => { finished = true; return value; });
+    await restorationStarted;
+    assert.equal(h.busy.value, true);
+    assert.equal(finished, false);
+    assert.equal(h.events.some(([kind]) => kind === "completed"), false);
+    release(success);
+    assert.equal(await opened, success);
+    assert.equal(h.busy.value, false);
+    if (!success) assert.match(h.error.value, /无法恢复原生任务结果/);
+  }
+});
+
+test("failed result restoration keeps the assistant open and exposes a safe visible error", async () => {
+  const app = read("App.vue"), start = app.indexOf("async function openAssistantTaskResult(");
+  const source = app.slice(start, app.indexOf("\nlet gaiaSelectionEpoch", start));
+  const busy = vue.ref(false), drawer = vue.ref(true), resultError = vue.ref("");
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
+    isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy,
+    assistantResultError: resultError, assistantDrawerOpen: drawer,
+    gaiaWorkspaceBar: vue.ref({ openAssistantResult: () => pending }),
+  });
+  const opening = module.open(reference);
+  assert.equal(busy.value, true);
+  assert.equal(drawer.value, true);
+  release(false);
+  await opening;
+  assert.equal(drawer.value, true);
+  assert.equal(busy.value, false);
+  assert.match(resultError.value, /无法打开任务结果/);
+  assert.match(read("components/assistant/FloatingAssistant.vue"), /v-if="resultError"[^>]+role="alert"/);
+});
+
+test("an obsolete failed restoration cannot overwrite a newer bridge selection", async () => {
+  let release, entered, restores = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { entered = resolve; });
+  const OTHER = "j_2222222222222222";
+  const h = harness(false, async url => ok(url === "/api/plug/huiyan/actions" ? { ref: J }
+    : url.endsWith(J) ? statusJob() : url.endsWith(OTHER) ? statusJob({ ref: OTHER }) : { items: [] }),
+    async () => { if (++restores === 1) { entered(); return pending; } return true; });
+  const old = h.openAssistantResult(reference);
+  await began;
+  await h.openRun(OTHER);
+  release(false);
+  assert.equal(await old, false);
+  assert.equal(h.error.value, "");
 });

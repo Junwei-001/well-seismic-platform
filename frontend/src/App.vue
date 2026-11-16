@@ -58,7 +58,8 @@ import {
 import heroInterpretationCenterImage from "./assets/首屏_井震智能解释中心.jpg";
 import FloatingAssistant from "./components/assistant/FloatingAssistant.vue";
 import GaiaWorkspaceBar from "./components/workflow/GaiaWorkspaceBar.vue";
-import { isGaiaEmbedded, nativeApiUrl } from "./gaiaEmbed";
+import { isGaiaEmbedded, isLegacyGaiaEmbedded, nativeApiUrl } from "./gaiaEmbed";
+import type { AssistantTaskReference } from "./assistantTaskResult";
 import { loadGaiaTaskChain } from "./gaiaTaskRestore";
 import LayerPulseWorkbench from "./components/layerpulse/LayerPulseWorkbench.vue";
 import ModelCenter from "./components/models/ModelCenter.vue";
@@ -7673,6 +7674,21 @@ async function restoreLatestDurableWorkflow(options: { preferLatestSnapshot?: bo
   }
 }
 
+const gaiaWorkspaceBar = ref<InstanceType<typeof GaiaWorkspaceBar> | null>(null);
+const assistantResultOpening = ref(false);
+const assistantResultError = ref("");
+async function openAssistantTaskResult(reference: AssistantTaskReference) {
+  if (!isGaiaEmbedded || isLegacyGaiaEmbedded || assistantResultOpening.value || !gaiaWorkspaceBar.value) return;
+  assistantResultOpening.value = true;
+  assistantResultError.value = "";
+  try {
+    if (await gaiaWorkspaceBar.value.openAssistantResult(reference)) assistantDrawerOpen.value = false;
+    else assistantResultError.value = "无法打开任务结果，请确认任务已完成且属于当前账号，或刷新后重试。";
+  } catch {
+    assistantResultError.value = "暂时无法打开任务结果，请稍后重试。";
+  } finally { assistantResultOpening.value = false; }
+}
+
 let gaiaSelectionEpoch = 0;
 function clearGaiaResult() {
   gaiaSelectionEpoch++;
@@ -7700,16 +7716,17 @@ async function restoreGaiaResult(value: { taskId: string }) {
   const current = () => epoch === gaiaSelectionEpoch && !componentUnmounted;
   try {
     const chain = await loadGaiaTaskChain(value.taskId, getTask, current);
-    if (!chain || !current()) return;
+    if (!chain || !current()) return false;
     // Owned tasks are already durable; embedding only restores the local view.
     restoreCompletedDataPreparationTask(chain.preparation, { snapshotId: chain.snapshotId, persistPathConfig: false, persistActiveSnapshot: false, rememberTask: false, offerRuntimeReview: false });
     if (chain.registration) installCompletedWorkflowTask(chain.registration, chain.registration.result as WorkflowResult, { persistActiveSnapshot: false });
     if (chain.sample) installCompletedWorkflowTask(chain.sample, chain.sample.result as WorkflowResult, { persistActiveSnapshot: false });
     selectView("preparation");
     preparationScreen.value = chain.registration ? "fusion" : "pipeline";
+    return true;
   } catch (cause) {
-    if (!current()) return;
-    errorMessage.value = cause instanceof Error ? cause.message : "无法恢复慧眼任务结果";
+    if (current()) errorMessage.value = cause instanceof Error ? cause.message : "无法恢复慧眼任务结果";
+    return false;
   }
 }
 
@@ -8046,7 +8063,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <GaiaWorkspaceBar v-if="isGaiaEmbedded" @completed="restoreGaiaResult" @loading="clearGaiaResult" />
+  <GaiaWorkspaceBar v-if="isGaiaEmbedded" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
   <div :class="['app-shell', { 'landing-shell': activeView === 'overview', 'gaia-embedded': isGaiaEmbedded }]">
     <aside v-if="activeView !== 'overview'" class="sidebar">
       <button type="button" class="brand brand-button" title="返回首屏" @click="selectView('overview')">
@@ -10073,6 +10090,10 @@ onBeforeUnmount(() => {
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
         :llm-model="capabilities?.assistant?.model ?? capabilities?.llm.model"
+        :can-open-task-results="isGaiaEmbedded && !isLegacyGaiaEmbedded"
+        :result-opening="assistantResultOpening"
+        :result-error="assistantResultError"
+        @open-task-result="openAssistantTaskResult"
         @navigate="handleAssistantNavigation"
       />
     </main>
@@ -10105,6 +10126,10 @@ onBeforeUnmount(() => {
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
         :llm-model="capabilities?.assistant?.model ?? capabilities?.llm.model"
+        :can-open-task-results="isGaiaEmbedded && !isLegacyGaiaEmbedded"
+        :result-opening="assistantResultOpening"
+        :result-error="assistantResultError"
+        @open-task-result="openAssistantTaskResult"
         @navigate="handleAssistantNavigation"
       />
     </aside>

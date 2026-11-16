@@ -15,6 +15,8 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
+from fastapi import HTTPException
+
 from .assistant_requests import AssistantRequestError, AssistantRequestStore
 from .gaia_minimax import (
     GaiaMiniMaxError,
@@ -69,6 +71,43 @@ def _session(subject: str, settings: GaiaMiniMaxSettings, requested: UUID | None
         return key, value
 
 
+def _reference_summary(kind: str, value: Any) -> dict[str, Any] | None:
+    """Retain opaque references and short labels, never artifact bodies or paths."""
+    if not isinstance(value, dict):
+        return None
+    identity = "revision_id" if kind == "versions" else "id"
+    identifier = value.get(identity)
+    if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", identifier):
+        return None
+    summary = {identity: identifier}
+    for key in ("project_id", "parent_revision_id", "parent_id"):
+        item = value.get(key)
+        if item is None and key in value:
+            summary[key] = None
+        elif isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", item):
+            summary[key] = item
+    if kind == "versions":
+        created = value.get("created_at")
+        if isinstance(created, str) and re.fullmatch(r"[0-9TtZz:+.\-]{1,40}", created):
+            summary["created_at"] = created
+        metadata = value.get("metadata")
+        operation = metadata.get("operation") if isinstance(metadata, dict) else None
+        if isinstance(operation, str) and re.fullmatch(r"[A-Za-z0-9_]{1,80}", operation):
+            summary["operation"] = operation
+    else:
+        name = value.get("name")
+        if isinstance(name, str):
+            name = name.replace("\\", "/").rsplit("/", 1)[-1]
+            summary["name"] = "".join(char for char in name if ord(char) >= 32)[:120]
+        role = value.get("role")
+        if isinstance(role, str) and re.fullmatch(r"[A-Za-z0-9_]{1,32}", role):
+            summary["role"] = role
+        digest = value.get("sha256")
+        if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest):
+            summary["sha256"] = digest
+    return summary
+
+
 def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     if len(json.dumps(receipt, ensure_ascii=False).encode("utf-8")) <= 12_000:
         return receipt
@@ -95,6 +134,63 @@ def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "details_available": True,
         "message": "结果较长，完整内容保存在此执行记录中。",
     }
+    # Large lists must still let the next model turn select a real owned ID.
+    # Keep latest versions first; assets/projects retain their registry order.
+    def fits(candidate: dict[str, Any]) -> bool:
+        return len(json.dumps({**short, "result": candidate}, ensure_ascii=False).encode("utf-8")) <= 12_000
+
+    page_key = {"dvc_list": "versions", "asset_list": "assets", "project_list": "projects"}.get(receipt.get("operation"))
+    paginated = (
+        page_key is not None
+        and isinstance(result.get(page_key), list)
+        and type(result.get("total")) is int
+        and type(result.get("offset")) is int
+        and 0 <= result["offset"] <= result["total"]
+        and type(result.get("limit")) is int
+        and 1 <= result["limit"] <= 32
+        and "next_offset" in result
+    )
+    if paginated:
+        short["result"].update({
+            "total": result["total"], "offset": result["offset"],
+            "limit": result["limit"], "count": 0, "next_offset": None,
+            "source_count": len(result[page_key]),
+            "order": result.get("order") if result.get("order") in {"created_at_desc", "registry_order", "newest_first"} else "unspecified",
+        })
+    for key in ("versions", "assets", "projects"):
+        values = result.get(key)
+        if not isinstance(values, list):
+            continue
+        summaries = []
+        is_page = paginated and key == page_key
+        total = result["total"] if is_page else len(values)
+        counts = {
+            key + "_total": total, key + "_count": 0,
+            key + "_truncated": bool(total),
+        }
+        short["result"].update({key: summaries, **counts})
+        candidates = reversed(values) if key == "versions" and not is_page else iter(values)
+        for value in candidates:
+            if len(summaries) >= 32:
+                break
+            summary = _reference_summary(key, value)
+            if summary is None:
+                continue
+            proposed = summaries + [summary]
+            candidate = {
+                **short["result"], key: proposed,
+                key + "_count": len(proposed),
+                key + "_truncated": len(proposed) < total,
+            }
+            if is_page:
+                # If the byte budget trims a page, continue from the last ID
+                # actually exposed to the model, not the unseen source-page end.
+                end = result["offset"] + len(proposed)
+                candidate.update(count=len(proposed), next_offset=end if end < total else None)
+            if not fits(candidate):
+                break
+            summaries = proposed
+            short["result"] = candidate
     for key in (
         "summary",
         "project_id",
@@ -102,9 +198,13 @@ def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "revision_id",
         "asset_contract",
         "native_status",
+        "native_task_submitted",
+        "original_executions",
     ):
-        if key in result and len(json.dumps(result[key], ensure_ascii=False)) < 3000:
-            short["result"][key] = result[key]
+        if key in result and len(json.dumps(result[key], ensure_ascii=False).encode("utf-8")) < 3000:
+            candidate = {**short["result"], key: result[key]}
+            if fits(candidate):
+                short["result"] = candidate
     task = result.get("task")
     if isinstance(task, dict):
         registration = (task.get("result") or {}).get("registration") or {}
@@ -124,6 +224,20 @@ def _failure(operation: str, code: str, message: str):
         "result": {},
         "error": {"code": code, "message": message},
     }
+
+
+def _http_failure(operation: str, error: HTTPException) -> dict[str, Any]:
+    """Preserve expected rejection categories without echoing exception details."""
+    if error.status_code in {401, 403, 404}:
+        code, message = "not_found", "资源不存在或不属于当前账号，请核对当前任务与项目绑定。"
+    else:
+        code, message = {
+            409: ("request_conflict", "请求与已有记录冲突，请核对当前任务和操作参数。"),
+            413: ("input_limit", "输入超过允许范围，请缩小本次操作。"),
+            422: ("invalid_arguments", "参数不符合操作目录，请核对必填字段和引用。"),
+            503: ("service_unavailable", "操作依赖的服务暂不可用，本项未完成。"),
+        }.get(error.status_code, ("execution_error", "执行接口异常，请查询任务状态后再重试。"))
+    return _failure(operation, code, message)
 
 
 def _receipt_answer(answer: str, receipts: list[dict[str, Any]]) -> str:
@@ -235,6 +349,33 @@ def _run_huiyan_agent(
                 "conversation_id": session_id,
             }
 
+        def refresh_pending_receipts():
+            changed = False
+            for prior_receipt in receipts:
+                execution_id = prior_receipt.get("execution_id")
+                if (
+                    prior_receipt.get("status") != "running"
+                    or (prior_receipt.get("result") or {}).get("native_task_submitted") is not True
+                    or not prior_receipt.get("task_id")
+                    or not isinstance(execution_id, str)
+                    or not re.fullmatch(r"hx_[0-9a-f]{32}", execution_id)
+                ):
+                    continue
+                try:
+                    latest = _bounded_receipt(harness.get_run(subject, execution_id))
+                    if latest.get("execution_id") != execution_id:
+                        raise ValueError("Mismatched owned execution")
+                except Exception:  # preserve pending truth, never invent a terminal result
+                    prior_receipt["refresh_warning"] = "原执行状态暂未刷新，请通过执行记录继续查询。"
+                    continue
+                if latest != prior_receipt:
+                    # seen[] shares this object, so duplicate tool signatures
+                    # also reuse its current state without repeating business.
+                    prior_receipt.clear()
+                    prior_receipt.update(latest)
+                    changed = True
+            return changed
+
         progress(snapshot())
         for round_index in range(MAX_ROUNDS):
             remaining = deadline - time.monotonic()
@@ -246,7 +387,12 @@ def _run_huiyan_agent(
                 "max_tokens": 4096,
                 "system": (
                     "你是地层慧眼 AI 操作助手。使用简洁中文，纯文本回复。"
-                    "按用户明确意图调用可用工具，查询能力与当前账号的项目/任务后再选择引用。"
+                    "按用户明确意图调用可用工具，先依据当前任务关联选择项目与资产。"
+                    "任务摘要的harness字段是服务端核实的关联：bound时优先使用其project_id查询资产，"
+                    "不要为寻找当前任务而遍历其他项目；unbound时先说明需要创建或导入关联项目，不能猜测。"
+                    "未选择任务时才按用户意图查询当前账号项目。"
+                    "列表含total/count/next_offset时是分页结果；若用户需要完整清单，使用next_offset继续，"
+                    "到next_offset为空才可称已列完；工具预算不足时说明已查范围，不把一页说成全部。"
                     "不要编造项目、任务、版本ID。对缺少参数先澄清，不猜测科学参数。"
                     "执行操作必须实际调用工具；不能用文字假装完成。只按工具回执描述完成、运行中、失败或阻塞。"
                     "不重复执行同一操作。运行中操作告知稍后查询，不反复轮询。"
@@ -349,6 +495,8 @@ def _run_huiyan_agent(
                                     str(uuid5(request_id, block["id"])),
                                 )
                             )
+                        except HTTPException as exc:
+                            receipt = _http_failure(name, exc)
                         except Exception:  # noqa: BLE001 - expose only a sanitized execution failure
                             receipt = _failure(
                                 name,
@@ -357,6 +505,8 @@ def _run_huiyan_agent(
                             )
                         seen[signature] = receipt
                         receipts.append(receipt)
+                if name == "task_status":
+                    refresh_pending_receipts()
                 progress(snapshot())
                 results.append(
                     {
@@ -376,6 +526,10 @@ def _run_huiyan_agent(
                 else "本次未取得有效回答，请稍后重试。"
             )
             turn.append({"role": "assistant", "content": answer})
+        if refresh_pending_receipts():
+            # The last provider prose preceded this state transition. Summarize
+            # verified current receipts instead of retaining its stale claim.
+            answer = "执行状态已更新，请以本轮实际执行记录及版本回执为准。"
         checked_answer = _receipt_answer(answer, receipts)
         if checked_answer != answer:
             answer = checked_answer

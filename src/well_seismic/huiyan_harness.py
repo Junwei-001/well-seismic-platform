@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import uuid
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -100,15 +100,23 @@ P, T, A, R = (
     _string(s)
     for s in ("当前账号的项目ID", "当前项目的任务ID", "当前项目的资产ID", "DVC版本ID")
 )
+MAX_LIST_PAGE = 32
+LIST_PAGE_FIELDS = {
+    "offset": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "起始偏移；继续查询时使用上次返回的next_offset。"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_PAGE, "description": "每页条数，默认32。"},
+}
 ACTION_SPECS = {
     "project_create": (
         "创建当前账号的慧眼项目，可导入已有盖亚数据检查任务。",
         _object({"name": _string(), "task_id": T}, ["name"]),
     ),
-    "project_list": ("列出当前账号的慧眼项目。", _object({})),
+    "project_list": (
+        "分页列出当前账号的慧眼项目，最新创建的在前。需要完整列表时继续使用next_offset。",
+        _object(dict(LIST_PAGE_FIELDS)),
+    ),
     "asset_list": (
-        "列出项目的受控资产，后续操作使用资产ID。",
-        _object({"project_id": P}, ["project_id"]),
+        "按登记顺序分页列出项目资产；后续操作使用资产ID，翻页使用next_offset。",
+        _object({"project_id": P, **LIST_PAGE_FIELDS}, ["project_id"]),
     ),
     "data_prepare": (
         "真实解析项目资产并创建不可变快照。坐标时深语义必须来自用户或数据，不得猜测。",
@@ -188,7 +196,7 @@ ACTION_SPECS = {
         ),
     ),
     "task_status": (
-        "读取当前账号的原生任务真实状态和结果。",
+        "读取所属任务真实状态，并同步原执行的终态与DVC归档；归档或业务门禁失败明确返回blocked。",
         _object({"project_id": P, "task_id": T}, ["project_id", "task_id"]),
     ),
     "visualization": (
@@ -210,8 +218,8 @@ ACTION_SPECS = {
         ),
     ),
     "dvc_list": (
-        "列出当前账号项目的DVC版本。",
-        _object({"project_id": P}, ["project_id"]),
+        "分页列出当前账号项目的DVC版本，最新版本在前；继续查询使用next_offset。",
+        _object({"project_id": P, **LIST_PAGE_FIELDS}, ["project_id"]),
     ),
     "dvc_get": (
         "读取DVC版本哈希、文件和操作元数据。",
@@ -343,6 +351,44 @@ class HuiyanHarness:
         if row is None:
             raise HTTPException(404, "Task not found in this project")
         return self.native["task"](task_id)
+
+    def assistant_context(self, subject: str, task_id: str | None) -> dict:
+        """Resolve the selected task from trusted ownership records without writes."""
+        self.subject(subject)
+        if task_id is None:
+            return {"binding": "unselected"}
+        if not isinstance(task_id, str) or not re.fullmatch(r"[0-9a-f]{32}", task_id):
+            raise HTTPException(404, "Task not found or not owned")
+        database = self.root / "harness.sqlite3"
+        if database.is_file():
+            # Do not initialize tables, create projects or update task ownership
+            # merely because the user opened a chat sidebar.
+            with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
+                db.execute("PRAGMA query_only=ON")
+                row = db.execute(
+                    "SELECT t.project_id,p.name FROM tasks t "
+                    "JOIN projects p ON p.id=t.project_id "
+                    "WHERE t.task_id=? AND t.subject=? AND p.subject=?",
+                    (task_id, subject, subject),
+                ).fetchone()
+                if row:
+                    return {
+                        "binding": "bound", "task_id": task_id,
+                        "project_id": row[0], "project_name": public_value(row[1]),
+                    }
+                if db.execute(
+                    "SELECT 1 FROM tasks WHERE task_id=?", (task_id,)
+                ).fetchone():
+                    raise HTTPException(404, "Task not found or not owned")
+        if self.legacy_root is None:
+            raise HTTPException(404, "Task not found or not owned")
+        from .gaia_ui import require_owned_task
+
+        require_owned_task(self.legacy_root, subject, task_id)
+        return {
+            "binding": "unbound", "task_id": task_id,
+            "message": "当前任务尚未关联慧眼项目，请先明确创建或导入关联项目。",
+        }
 
     def bind_task(self, subject: str, project_id: str, task_id: str):
         with self.db() as db:
@@ -615,6 +661,9 @@ class HuiyanHarness:
                     error={"code": exc.code, "message": exc.message},
                     result=public_value(exc.details),
                 )
+                for key in ("task_id", "project_id", "revision_id"):
+                    if receipt["result"].get(key):
+                        receipt[key] = receipt["result"][key]
             except HTTPException as exc:
                 if exc.status_code in {401, 403, 404}:
                     receipt.update(
@@ -655,6 +704,12 @@ class HuiyanHarness:
 
     def get_run(self, subject, execution_id):
         self.subject(subject)
+        # UI refresh and AI status queries share one terminal transition. The
+        # existing RLock also permits execute() to replay/refresh while held.
+        with self.lock:
+            return self._get_run_locked(subject, execution_id)
+
+    def _get_run_locked(self, subject, execution_id):
         with self.db() as db:
             row = db.execute(
                 "SELECT receipt FROM executions WHERE id=? AND subject=?",
@@ -728,6 +783,47 @@ class HuiyanHarness:
             self._save(receipt)
         return receipt
 
+    def _task_executions(self, subject, project_id, task_id):
+        """Refresh only owned native submissions; never recursively query self."""
+        self.own_task(subject, project_id, task_id)
+        native_operations = {
+            "data_prepare", "registration", "sample_build", "prediction",
+            "horizon_attribute_analysis",
+        }
+        with self.lock:
+            with self.db() as db:
+                rows = db.execute(
+                    "SELECT id,receipt FROM executions WHERE subject=? ORDER BY rowid",
+                    (subject,),
+                ).fetchall()
+            summaries = []
+            for row in rows:
+                prior = json.loads(row["receipt"])
+                if (
+                    prior.get("project_id") != project_id
+                    or prior.get("task_id") != task_id
+                    or prior.get("operation") not in native_operations
+                    or (prior.get("result") or {}).get("native_task_submitted") is not True
+                    or row["id"] in self.active_executions
+                ):
+                    continue
+                # get_run rechecks the owned task before refreshing a running
+                # native result. A terminal receipt is reused without rearchive.
+                receipt = self.get_run(subject, row["id"])
+                summary = {
+                    key: receipt[key] for key in (
+                        "execution_id", "operation", "status", "revision_id", "error",
+                    ) if key in receipt
+                }
+                versioning = (receipt.get("result") or {}).get("versioning")
+                if isinstance(versioning, dict):
+                    summary["versioning"] = {
+                        key: versioning[key] for key in ("status", "code", "revision_id")
+                        if key in versioning
+                    }
+                summaries.append(summary)
+            return summaries
+
     def _archive_task(self, subject, project_id, task_id, task):
         path = self.root / "receipts" / (task_id + ".json")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -791,6 +887,20 @@ class HuiyanHarness:
         self.bind_task(subject, project_id, result["task_id"])
         return {**result, "project_id": project_id, "native_task_submitted": True}
 
+    @staticmethod
+    def _list_page(items: list[dict], arguments: dict, field: str, order: str) -> dict:
+        offset, limit = arguments.get("offset", 0), arguments.get("limit", MAX_LIST_PAGE)
+        total = len(items)
+        if offset > total:
+            raise HTTPException(422, "Page offset exceeds the collection size")
+        page = items[offset:offset + limit]
+        end = offset + len(page)
+        return {
+            field: page, "total": total, "count": len(page),
+            "offset": offset, "limit": limit,
+            "next_offset": end if end < total else None, "order": order,
+        }
+
     def _dispatch(self, subject, op, args):
         project_id = args.get("project_id", "")
         if op == "project_create":
@@ -826,13 +936,16 @@ class HuiyanHarness:
                     "SELECT id,name FROM projects WHERE subject=? ORDER BY rowid DESC",
                     (subject,),
                 ).fetchall()
-            return {"projects": [dict(row) for row in rows]}
+            return self._list_page(
+                [dict(row) for row in rows], args, "projects", "newest_first"
+            )
         if op == "asset_list":
             return {
                 "project_id": project_id,
-                "assets": [
-                    self.public_asset(a) for a in self.assets(subject, project_id)
-                ],
+                **self._list_page(
+                    [self.public_asset(a) for a in self.assets(subject, project_id)],
+                    args, "assets", "registry_order",
+                ),
             }
         if op == "data_prepare":
             ids = args.get("asset_ids")
@@ -941,11 +1054,25 @@ class HuiyanHarness:
         if op in {"task_status", "visualization"}:
             task = self.own_task(subject, project_id, args["task_id"])
             if op == "task_status":
-                return {
+                originals = self._task_executions(subject, project_id, args["task_id"])
+                task = self.own_task(subject, project_id, args["task_id"])
+                result = {
                     "project_id": project_id,
                     "task_id": args["task_id"],
                     "task": public_value(task),
+                    "original_executions": originals,
                 }
+                if len(originals) == 1 and originals[0].get("revision_id"):
+                    result["revision_id"] = originals[0]["revision_id"]
+                rejected = next((r for r in originals if r["status"] in {"blocked", "failed"}), None)
+                if rejected:
+                    error = rejected.get("error") or {}
+                    raise HarnessBlocked(
+                        error.get("code", "native_task_incomplete"),
+                        error.get("message", "原执行未通过业务或归档门禁，不能视为完整完成。"),
+                        result,
+                    )
+                return result
             return {
                 "project_id": project_id,
                 "task_id": args["task_id"],
@@ -1002,7 +1129,10 @@ class HuiyanHarness:
                 parent_revision_id=args.get("parent_revision_id"),
             )
         if op == "dvc_list":
-            return {"versions": self._store().list_versions(subject, project_id)}
+            return self._list_page(
+                list(reversed(self._store().list_versions(subject, project_id))),
+                args, "versions", "created_at_desc",
+            )
         if op == "dvc_get":
             return self._store().get(subject, project_id, args["revision_id"])
         if op == "dvc_compare":

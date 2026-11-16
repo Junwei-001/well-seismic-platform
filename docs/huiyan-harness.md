@@ -2,6 +2,19 @@
 
 该接口把现有数据准备、井震标定、融合样本、预测和可视化函数注册为 AI 可调用的操作。身份来自盖亚服务端认证，模型仅提交动作名和当前账号已有的项目、资产、任务、版本 ID；不允许传本机路径、命令、脚本、凭据或用户身份。
 
+## 安装与启用前提
+
+现有开发环境复用已配置的解释器，不在工作副本重复装包。首次配置该平台环境时，需要 `pyproject.toml` 的 `web` 与 `agent` extras；只安装 `.[web]` 或 `requirements-interface.txt` 不包含真实 DVC 和全部数据处理依赖：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[web,agent]"
+.\.venv\Scripts\python.exe -m dvc --version
+```
+
+`agent` 固定 `dvc==3.67.1`，并声明 LAS/SEG-Y、标定/样本的数据处理依赖。可选可视化适配器按 `visualization` extra 配置；这些 extras 均不附模型权重或训练运行时。通过认证代理调用 `dvc_status` 后，应检查实际 `available` 和 `version`；缺少命令时返回不可用，不能用普通聊天可回复代替 DVC 验证。
+
+服务鉴权与 MiniMax 仍使用已有后端配置，详见 [盖亚任务接入的配置说明](02_Gaia任务接入.md#后端配置与安装前提) 和 [README 模型配置](../README.md#基础问答与-minimax-配置)。服务令牌、模型密钥及私有配置不进入浏览器或 Git。
+
 ## 入口与回执
 
 | 入口 | 用途 |
@@ -14,7 +27,11 @@
 
 所有入口沿用服务端 Bearer 凭据及可信 `X-Gaia-Subject`。浏览器不应持有服务凭据，必须通过盖亚所属账号代理。回执使用 `well-seismic.harness.v1`，包括 `execution_id`、`operation_id`、`request_sha256`、状态、原生任务 ID、结果或结构化错误。请求摘要为 UTF-8 JSON 的 SHA256：`{operation,arguments}`，键排序、保留 Unicode、紧凑分隔符。
 
+登录后的侧栏根据服务端 `subject + task_id` 只读解析当前任务所属项目，把已核实的项目 ID 置于任务摘要前部；不会根据项目列表顺序猜测，也不会因打开对话自动创建项目。跨账号、未知任务或不一致归属拒绝访问；已授权的旧 LAS 任务若未绑定 Harness 项目，明确返回未绑定，需要先创建或导入关联项目。权限、参数、冲突和服务不可用等预期错误保留安全的分类，不把它们统一显示成接口异常。
+
 同一账号同一 `operation_id` 重试返回原执行；改动参数返回 409。跨账号项目、资产、任务和执行查询返回 404。原生队列 completed 不直接等于业务成功：标定 `business_status=blocked` 会传播为 blocked；原生成功但 DVC 失败也会明确版本闭环未完成。
+
+`task_status` 在核对账号、项目和任务归属后，会刷新对应原生提交执行，复用页面刷新相同的终态和自动 DVC 归档路径。查询返回 `original_executions` 状态摘要与已有版本 ID；并发页面刷新和 AI 查询在同一 Harness 实例内串行收敛，重复查询复用原回执，不重跑原生任务或重复归档。归档失败、原生失败及业务门禁失败明确保留；没有 Harness 原执行的导入任务只报告原生状态，不伪造归档成功。失败归档不因再次查询而隐式重试，需显式发起归档操作。AI 同轮先提交、后查询时，会按当前账号刷新已收集的原执行回执，最终回答、执行卡与持久化请求使用相同的最新状态，避免仍显示首次提交的运行中快照。
 
 上传按当前账号、工程、角色、原始文件名及内容 SHA256 去重，重复上传返回原资产和版本回执。请求中断后不会静默生成重复资产；未完成的持久化上传声明明确返回 409。可视化的 Harness 入口和所属账号 UI 入口均将原生页面导航保留在当前任务路径，仅接受单值 `asset`（非负整数）、`block`、`layerpulse_output`（字母、数字、下划线或连字符）查询；不允许查询参数替换任务归属。
 
@@ -32,15 +49,21 @@
 
 数据、执行与所有权记录在忽略的运行目录中，服务重启后仍可读取完成历史。回执剥离本机绝对路径；DVC 逻辑文件名短且稳定，原名、角色、血缘和哈希保留在版本元数据中。
 
+`project_list`、`asset_list`、`dvc_list` 共用可选分页参数 `offset`（从0开始）和 `limit`（1–32，默认32），返回全量 `total`、本页 `count`、`offset`、`limit`、`next_offset` 和 `order`。项目按创建先后倒序，资产按登记顺序，DVC版本按创建时间与版本 ID 倒序。需要完整清单时，用响应中的 `next_offset` 继续调用相同动作，直到它为 `null`；到达末尾返回空页，超出清单范围明确拒绝。身份仍由服务端认证决定，分页不能跨账号查询。
+
+送给 AI 的单项回执超过 12,000 UTF-8 字节时会保留受限摘要。真实 ID、父版本/父资产和必要标签仍可用于下一次查询；`total` 保留全量总数，`count` 表示此次实际可见的引用数。字节预算可能使实际条数少于请求的 `limit`，此时 `next_offset` 从实际可见引用之后继续，不能自行按 `offset + limit` 跳页。摘要另有 `*_total`、`*_count`、`*_truncated`，不包含文件路径、原始数据数组或整份版本文件清单。只有读到 `next_offset=null` 才能称已遍历完整清单；如果工具预算耗尽，应明确已查询范围。完整回执保留在所属执行记录中，也可按版本 ID 查询详情。分页针对当时的清单；遍历期间若新增记录，应重新查询核对。
+
 ## 可复现验证
 
-使用当前环境运行：
+先完成上述依赖检查，并由盖亚普通登录账号使用实际受控入口。模块测试与隔离合成数据复现使用当前环境运行：
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m pytest tests/test_huiyan_harness.py tests/test_gaia_ui.py tests/test_gaia_tasks.py -q
 .\.venv\Scripts\python.exe -B scripts/verify_harness_native.py --output <新的报告路径>
 .\.venv\Scripts\python.exe -B scripts/verify_harness_native.py --generate-only <新的合成数据目录>
 ```
+
+另按 [DVC 说明](dvc-versions.md#运行与明确限制) 运行真实 CLI 用例。未安装 DVC 导致的 skipped 不算通过，单纯模块测试也不替代普通账号自然语言执行与页面验收。
 
 原生验证脚本创建新隔离源码快照，仅复制源代码、配置、接口合同及无权重标记；不复制 `.env`、账号、旧任务或旧证据。它生成 601 点 LAS、3×3×701 SEG-Y、井头、带明确单位的轨迹和时深表，运行上传→曲线映射→数据准备→标定→融合样本→DVC 归档、比较、恢复与重跑。数据明确标注为合成，不是现场业务数据或模型效果评估。
 
