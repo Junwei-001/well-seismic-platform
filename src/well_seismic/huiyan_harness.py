@@ -31,6 +31,8 @@ from .api_models import (
     PreprocessingRequest,
     RegistrationPreflightRequest,
 )
+from .content_identity import file_sha256
+from .dvc_store import archive_key_lock
 from .gaia_tasks import authenticate
 from .gaia_ui import owned_visualization_html, public_value, visualization_query
 from .io.las import _read_text, read_las
@@ -274,6 +276,7 @@ class HuiyanHarness:
         CREATE TABLE IF NOT EXISTS tasks(task_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,subject TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS uploads(digest TEXT PRIMARY KEY,subject TEXT NOT NULL,project_id TEXT NOT NULL,receipt TEXT);
         CREATE TABLE IF NOT EXISTS executions(id TEXT PRIMARY KEY,subject TEXT NOT NULL,operation_id TEXT NOT NULL,digest TEXT NOT NULL,receipt TEXT NOT NULL,UNIQUE(subject,operation_id));
+        CREATE TABLE IF NOT EXISTS archives(digest TEXT PRIMARY KEY,subject TEXT NOT NULL,project_id TEXT NOT NULL,receipt TEXT NOT NULL);
         """)
         try:
             yield con
@@ -489,15 +492,39 @@ class HuiyanHarness:
                 ).fetchone()
                 if previous:
                     if previous["receipt"]:
-                        return json.loads(previous["receipt"])
-                    raise HTTPException(
-                        409,
-                        "Upload already claimed; inspect owned assets before retrying",
+                        result = json.loads(previous["receipt"])
+                        if (result.get("versioning") or {}).get("status") != "blocked":
+                            return result
+                        # Registration already succeeded. An explicit retry may
+                        # recover its archive, but must not rewrite the input.
+                        asset = self.asset(subject, project_id, result["asset"]["id"])
+                    else:
+                        raise HTTPException(
+                            409,
+                            "Upload already claimed; inspect owned assets before retrying",
+                        )
+                else:
+                    result = None
+                    db.execute(
+                        "INSERT INTO uploads VALUES(?,?,?,NULL)",
+                        (digest, subject, project_id),
                     )
-                db.execute(
-                    "INSERT INTO uploads VALUES(?,?,?,NULL)",
-                    (digest, subject, project_id),
-                )
+            if result is not None:
+                result = {
+                    **result,
+                    **self._auto_archive(subject, project_id, "asset_upload", [asset]),
+                }
+                with self.db() as db:
+                    db.execute(
+                        "UPDATE uploads SET receipt=? WHERE digest=? AND subject=? AND project_id=?",
+                        (
+                            json.dumps(result, ensure_ascii=False),
+                            digest,
+                            subject,
+                            project_id,
+                        ),
+                    )
+                return result
             try:
                 result = self._upload_new(subject, project_id, role, filename, content)
             except HTTPException:
@@ -553,7 +580,7 @@ class HuiyanHarness:
 
     def _auto_archive(self, subject, project_id, operation, assets):
         try:
-            receipt = self._store().archive(
+            receipt = self._archive_once(
                 subject,
                 project_id,
                 {self.logical_asset_name(a): Path(a["path"]) for a in assets},
@@ -572,6 +599,83 @@ class HuiyanHarness:
                     "message": "数据操作已完成，但DVC归档未成功，不能视为版本闭环已完成。",
                 }
             }
+
+    def _archive_once(
+        self, subject, project_id, files, metadata, parent_revision_id=None
+    ):
+        """Publish the same owned content only once, including reply-loss recovery."""
+        store = self._store()
+        if not 1 <= len(files) <= getattr(store, "max_files", 128):
+            raise HarnessBlocked(
+                "input_limit", "归档工件数量超出允许范围，未读取或创建版本。"
+            )
+        if sum(Path(path).stat().st_size for path in files.values()) > getattr(
+            store, "max_total_bytes", 2 * 1024**3
+        ):
+            raise HarnessBlocked(
+                "input_limit", "归档工件总大小超出允许范围，未读取或创建版本。"
+            )
+        fingerprints = {
+            name: file_sha256(Path(path)) for name, path in sorted(files.items())
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                [subject, project_id, fingerprints, metadata, parent_revision_id],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        # Coordinate only this content key. Unrelated projects can keep writing
+        # while DVC runs; SQLite transactions cover only receipt reads/writes.
+        with archive_key_lock(
+            self.root / "archive-locks", digest, timeout=getattr(store, "timeout", 180)
+        ):
+            with self.db() as db:
+                cached = db.execute(
+                    "SELECT receipt FROM archives WHERE digest=? AND subject=? AND project_id=?",
+                    (digest, subject, project_id),
+                ).fetchone()
+            receipt = json.loads(cached["receipt"]) if cached else None
+            if receipt is not None and hasattr(store, "get"):
+                receipt = store.get(subject, project_id, receipt["revision_id"])
+            if receipt is None and hasattr(store, "find_archive"):
+                # DVC publication may have completed immediately before a
+                # process exit prevented receipt persistence. Resolve only its
+                # deterministic candidate, never read/hash unrelated history.
+                receipt = store.find_archive(subject, project_id, digest)
+            if receipt is None:
+                receipt = store.archive(
+                    subject,
+                    project_id,
+                    files,
+                    {**metadata, "archive_key": digest},
+                    parent_revision_id=parent_revision_id,
+                )
+            if (receipt.get("metadata") or {}).get("archive_key") != digest:
+                raise HarnessBlocked(
+                    "archive_integrity_failed",
+                    "归档回执与本次内容身份不一致，未确认恢复成功。",
+                )
+            entries = receipt.get("files") or []
+            if entries and isinstance(entries[0], dict):
+                archived = {item["path"]: item["sha256"] for item in entries}
+                if archived != fingerprints:
+                    raise HarnessBlocked(
+                        "archive_integrity_failed",
+                        "归档文件与本次完整工件清单不一致，未确认恢复成功。",
+                    )
+            with self.db() as db:
+                db.execute(
+                    "INSERT OR IGNORE INTO archives VALUES(?,?,?,?)",
+                    (
+                        digest,
+                        subject,
+                        project_id,
+                        json.dumps(receipt, ensure_ascii=False),
+                    ),
+                )
+            return receipt
 
     def _validate_args(self, operation, args):
         spec = ACTION_SPECS.get(operation) if isinstance(operation, str) else None
@@ -824,13 +928,26 @@ class HuiyanHarness:
                 summaries.append(summary)
             return summaries
 
-    def _archive_task(self, subject, project_id, task_id, task):
-        path = self.root / "receipts" / (task_id + ".json")
+    def _task_archive_files(self, task_id, task):
+        """Collect every producer-declared result, or fail the whole archive."""
+        if task.get("status") != "completed":
+            raise HarnessBlocked("task_incomplete", "只可归档已完成任务的结果")
+        document = json.dumps(
+            public_value(task), ensure_ascii=False, sort_keys=True, indent=2
+        )
+        path = (
+            self.root
+            / "receipts"
+            / task_id
+            / (hashlib.sha256(document.encode()).hexdigest() + ".json")
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            path.write_text(
-                json.dumps(public_value(task), ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            path.write_text(document, encoding="utf-8")
+        elif path.read_text(encoding="utf-8") != document:
+            raise HarnessBlocked(
+                "task_receipt_integrity_failed",
+                "任务归档摘要已改变，未覆盖历史文件或创建新版本。",
             )
         files = {"results/task.json": path}
         artifact_names = {}
@@ -839,34 +956,65 @@ class HuiyanHarness:
         # data root may enter DVC. No arbitrary model-supplied file paths.
         def collect(value, prefix="result", inside_outputs=False):
             if isinstance(value, dict):
+                # Native artifact records carry a path plus labels and hashes;
+                # those descriptive strings are not themselves file names.
+                if inside_outputs and "path" in value:
+                    if not isinstance(value["path"], str) or not value["path"]:
+                        raise HarnessBlocked(
+                            "artifact_unavailable", "任务结果工件路径无效，未完成归档。"
+                        )
+                    collect(value["path"], prefix + "/path", True)
+                    return
                 for key, item in value.items():
                     collect(
                         item,
-                        prefix + "/" + re.sub(r"[^A-Za-z0-9_-]", "_", str(key))[:60],
+                        prefix + "/" + str(key),
                         inside_outputs
                         or key in {"outputs", "output_files", "artifacts"},
                     )
             elif isinstance(value, list):
-                for index, item in enumerate(value[:100]):
+                for index, item in enumerate(value):
                     collect(item, prefix + "/" + str(index), inside_outputs)
-            elif inside_outputs and isinstance(value, str) and len(files) < 100:
+            elif inside_outputs and isinstance(value, str):
                 candidate = Path(value)
                 if not candidate.is_absolute():
-                    return
+                    raise HarnessBlocked(
+                        "artifact_unavailable",
+                        "任务声明了无法定位的结果工件，未完成归档。",
+                    )
                 resolved = candidate.resolve()
-                if resolved.is_file() and any(
+                if not resolved.is_file() or not any(
                     resolved.is_relative_to(root) for root in self.allowed_roots
                 ):
-                    logical = (
-                        "r/"
-                        + hashlib.sha256(prefix.encode()).hexdigest()[:16]
-                        + resolved.suffix[:10]
+                    raise HarnessBlocked(
+                        "artifact_unavailable",
+                        "任务声明的结果工件缺失或超出允许的数据根，未完成归档。",
                     )
-                    files[logical] = resolved
-                    artifact_names[logical] = resolved.name
+                if len(files) >= 100:
+                    raise HarnessBlocked(
+                        "artifact_limit",
+                        "任务结果工件超过归档上限，未截断为不完整版本。",
+                    )
+                logical = (
+                    "r/"
+                    + hashlib.sha256(prefix.encode()).hexdigest()[:16]
+                    + resolved.suffix[:10]
+                )
+                if logical in files:
+                    raise HarnessBlocked(
+                        "artifact_conflict", "结果工件标识冲突，未完成归档。"
+                    )
+                # Preserve the unresolved path so DVC's source guard can reject
+                # symlinks and Windows reparse points before copying it.
+                files[logical] = candidate
+                artifact_names[logical] = resolved.name
 
         collect(task.get("result") or {})
-        return self._store().archive(
+        return files, artifact_names
+
+    def _archive_task(self, subject, project_id, task_id, task):
+        files, artifact_names = self._task_archive_files(task_id, task)
+        return self._archive_once(
             subject,
             project_id,
             files,
@@ -876,6 +1024,61 @@ class HuiyanHarness:
                 "artifact_names": artifact_names,
             },
         )
+
+    def _native_execution_ids(self, subject, project_id, task_id):
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT receipt FROM executions WHERE subject=? ORDER BY rowid",
+                (subject,),
+            ).fetchall()
+        return [
+            receipt["execution_id"]
+            for row in rows
+            if (receipt := json.loads(row["receipt"])).get("project_id") == project_id
+            and receipt.get("task_id") == task_id
+            and (receipt.get("result") or {}).get("native_task_submitted") is True
+        ]
+
+    def _task_archive_recovery(self, subject, project_id, task_id):
+        """Link a verified new archive without rewriting the failed native run."""
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT receipt FROM executions WHERE subject=? ORDER BY rowid DESC",
+                (subject,),
+            ).fetchall()
+        for row in rows:
+            receipt = json.loads(row["receipt"])
+            if (
+                receipt.get("operation"),
+                receipt.get("status"),
+                receipt.get("project_id"),
+                receipt.get("task_id"),
+            ) != (
+                "dvc_archive",
+                "completed",
+                project_id,
+                task_id,
+            ):
+                continue
+            revision_id = receipt.get("revision_id")
+            if not revision_id:
+                continue
+            # Recheck the immutable version; a saved success alone does not
+            # prove that its complete artifacts are still available.
+            version = self._store().get(subject, project_id, revision_id)
+            metadata = version.get("metadata") or {}
+            if (
+                metadata.get("task_id") != task_id
+                or metadata.get("operation") != "dvc_archive"
+            ):
+                continue
+            return {
+                "execution_id": receipt["execution_id"],
+                "revision_id": revision_id,
+                "status": "completed",
+                "source_execution_ids": metadata.get("source_execution_ids", []),
+            }
+        return None
 
     def _submit(self, subject, project_id, operation, payload):
         created = self.native[operation](payload)
@@ -1064,12 +1267,41 @@ class HuiyanHarness:
                 }
                 if len(originals) == 1 and originals[0].get("revision_id"):
                     result["revision_id"] = originals[0]["revision_id"]
-                rejected = next((r for r in originals if r["status"] in {"blocked", "failed"}), None)
+                recovery = self._task_archive_recovery(
+                    subject, project_id, args["task_id"]
+                )
+                if recovery:
+                    result["archival_recovery"] = recovery
+                    result["revision_id"] = recovery["revision_id"]
+                rejected = next(
+                    (
+                        r
+                        for r in originals
+                        if r["status"] in {"blocked", "failed"}
+                        and not (
+                            recovery
+                            and (r.get("error") or {}).get("code")
+                            == "versioning_incomplete"
+                            and r["execution_id"] in recovery["source_execution_ids"]
+                        )
+                    ),
+                    None,
+                )
                 if rejected:
                     error = rejected.get("error") or {}
                     raise HarnessBlocked(
                         error.get("code", "native_task_incomplete"),
-                        error.get("message", "原执行未通过业务或归档门禁，不能视为完整完成。"),
+                        error.get(
+                            "message", "原执行未通过业务或归档门禁，不能视为完整完成。"
+                        ),
+                        result,
+                    )
+                if ((task.get("result") or {}).get("registration") or {}).get(
+                    "business_status"
+                ) == "blocked":
+                    raise HarnessBlocked(
+                        "native_business_blocked",
+                        "原生标定未通过业务质量门禁；归档恢复不代表业务验收通过。",
                         result,
                     )
                 return result
@@ -1094,18 +1326,14 @@ class HuiyanHarness:
             return self._store().status()
         if op == "dvc_archive":
             files = {}
+            artifact_names = {}
+            source_execution_ids = []
             if args.get("task_id"):
                 task = self.own_task(subject, project_id, args["task_id"])
-                if task.get("status") != "completed":
-                    raise HarnessBlocked("task_incomplete", "只可归档已完成任务的结果")
-                path = self.root / "receipts" / (args["task_id"] + ".json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not path.exists():
-                    path.write_text(
-                        json.dumps(public_value(task), ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                files["results/" + path.name] = path
+                files, artifact_names = self._task_archive_files(args["task_id"], task)
+                source_execution_ids = self._native_execution_ids(
+                    subject, project_id, args["task_id"]
+                )
             ids = args.get("asset_ids")
             if ids is None:
                 ids = [a["id"] for a in self.assets(subject, project_id)]
@@ -1116,7 +1344,7 @@ class HuiyanHarness:
                 asset_records.append(self.public_asset(a))
             if not files:
                 raise HarnessBlocked("input_required", "没有可归档的数据或结果")
-            return self._store().archive(
+            version = self._archive_once(
                 subject,
                 project_id,
                 files,
@@ -1125,9 +1353,16 @@ class HuiyanHarness:
                     "task_id": args.get("task_id"),
                     "asset_ids": ids,
                     "asset_records": asset_records,
+                    "artifact_names": artifact_names,
+                    "source_execution_ids": source_execution_ids,
                 },
                 parent_revision_id=args.get("parent_revision_id"),
             )
+            return {
+                **version,
+                "task_id": args.get("task_id"),
+                "source_execution_ids": source_execution_ids,
+            }
         if op == "dvc_list":
             return self._list_page(
                 list(reversed(self._store().list_versions(subject, project_id))),

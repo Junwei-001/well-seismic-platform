@@ -116,15 +116,17 @@ def test_session_cannot_be_reused_by_another_subject(tmp_path):
         "well_seismic.gaia_agent.request_minimax_message", return_value=text("ok")
     ):
         first = run(h)
-        with pytest.raises(GaiaMiniMaxError):
-            chat_with_huiyan_agent(
-                SETTINGS,
-                subject="b" * 64,
-                question="list",
-                context={},
-                conversation_id=UUID(first["conversation_id"]),
-                harness=h,
-            )
+        rejected = chat_with_huiyan_agent(
+            SETTINGS,
+            subject="b" * 64,
+            question="list",
+            context={},
+            conversation_id=UUID(first["conversation_id"]),
+            harness=h,
+        )
+    assert rejected["request_state"] == "finished"
+    assert rejected["error"]["code"] == "conversation_unavailable"
+    assert rejected["executions"] == []
     h.execute.assert_not_called()
 
 

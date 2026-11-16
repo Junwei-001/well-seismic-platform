@@ -33,7 +33,13 @@
 
 `task_status` 在核对账号、项目和任务归属后，会刷新对应原生提交执行，复用页面刷新相同的终态和自动 DVC 归档路径。查询返回 `original_executions` 状态摘要与已有版本 ID；并发页面刷新和 AI 查询在同一 Harness 实例内串行收敛，重复查询复用原回执，不重跑原生任务或重复归档。归档失败、原生失败及业务门禁失败明确保留；没有 Harness 原执行的导入任务只报告原生状态，不伪造归档成功。失败归档不因再次查询而隐式重试，需显式发起归档操作。AI 同轮先提交、后查询时，会按当前账号刷新已收集的原执行回执，最终回答、执行卡与持久化请求使用相同的最新状态，避免仍显示首次提交的运行中快照。
 
-上传按当前账号、工程、角色、原始文件名及内容 SHA256 去重，重复上传返回原资产和版本回执。请求中断后不会静默生成重复资产；未完成的持久化上传声明明确返回 409。可视化的 Harness 入口和所属账号 UI 入口均将原生页面导航保留在当前任务路径，仅接受单值 `asset`（非负整数）、`block`、`layerpulse_output`（字母、数字、下划线或连字符）查询；不允许查询参数替换任务归属。
+上传按当前账号、工程、角色、原始文件名及内容 SHA256 去重。已有成功回执原样复用；已有资产但 `versioning.status=blocked` 时，用户在原项目重传同文件会重新检查原资产归属及哈希，只恢复其归档，不重写文件、不创建新资产。成功后更新上传缓存并复用同一版本；不会修改其他项目的资产或失败回执。请求中断后未形成回执的持久化上传声明仍明确返回 409，不盲目重做可能已完成的注册。
+
+显式 `dvc_archive(task_id)` 与自动归档共用完整工件收集器，包含所属原生任务声明的 `outputs`、`output_files`、`artifacts` 文件及不可变任务摘要。结构化 artifact 的 `path` 是文件路径，名称、类型和哈希是描述字段。声明工件缺失、越界、无法定位或超量时整次归档失败，不能仅归档任务 JSON 后宣称结果完整。相同文件内容、元数据及父版本的归档复用已有版本；协调与完整性边界见 [DVC 版本说明](dvc-versions.md#归档去重与故障恢复)。
+
+手动归档回执在 `result` 保留 `task_id`（仅资产归档时为 null）和 `source_execution_ids`。恢复成功后，新的 `task_status` 查询返回 `result.archival_recovery={execution_id, revision_id, status:'completed', source_execution_ids}`，当前查询的 `revision_id` 指向已核验的恢复版本；`original_executions` 和历史原生执行的失败回执不改写。只有来源执行匹配的 `versioning_incomplete` 可在新查询中解除；归档恢复不解除业务质量失败、其他原生失败或缺模型权重。AI 的大回执摘要保留有界的恢复关联与原执行状态，完整事实仍在所属执行记录中。
+
+可视化的 Harness 入口和所属账号 UI 入口均将原生页面导航保留在当前任务路径，仅接受单值 `asset`（非负整数）、`block`、`layerpulse_output`（字母、数字、下划线或连字符）查询；不允许查询参数替换任务归属。
 
 ## 原生功能及边界
 
@@ -59,6 +65,7 @@
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m pytest tests/test_huiyan_harness.py tests/test_gaia_ui.py tests/test_gaia_tasks.py -q
+.\.venv\Scripts\python.exe -B -m pytest tests/test_huiyan_archive_recovery.py tests/test_huiyan_task_status_completion.py -q
 .\.venv\Scripts\python.exe -B scripts/verify_harness_native.py --output <新的报告路径>
 .\.venv\Scripts\python.exe -B scripts/verify_harness_native.py --generate-only <新的合成数据目录>
 ```

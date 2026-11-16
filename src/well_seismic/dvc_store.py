@@ -7,6 +7,7 @@ DVC runs without SCM in private runtime directories; it never stages Git files.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -15,9 +16,11 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from configparser import ConfigParser
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -29,6 +32,7 @@ RESTORE_SCHEMA = "well-seismic.dvc-restore.v1"
 _REVISION = re.compile(r"dv_[0-9a-f]{32}\Z")
 _RESTORE = re.compile(r"dr_[0-9a-f]{32}\Z")
 _PROJECT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+_ARCHIVE_KEY = re.compile(r"[0-9a-f]{64}\Z")
 _SECRET = re.compile(
     r"password|secret|credential|authorization|api[_-]?key|access[_-]?token",
     re.IGNORECASE,
@@ -92,6 +96,65 @@ def _under(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+@contextmanager
+def archive_key_lock(directory: Path, key: str, *, timeout: float = 180):
+    """Coordinate one content key across processes without holding a DB lock."""
+    if not isinstance(key, str) or not _ARCHIVE_KEY.fullmatch(key):
+        _fail("invalid_archive_key", "Archive identity is invalid.")
+    directory = _no_links(directory)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = _no_links(directory / (key + ".lock"))
+    descriptor = os.open(
+        path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600
+    )
+    locked = False
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            _fail("unsafe_path", "Archive coordination requires a regular lock file.")
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"0")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise DvcStoreError(
+                        "archive_lock_failed", "Archive coordination failed."
+                    ) from exc
+                if time.monotonic() >= deadline:
+                    raise DvcStoreError(
+                        "archive_in_progress",
+                        "This archive is still being prepared; retry after it completes.",
+                    ) from exc
+                time.sleep(0.05)
+        yield
+    finally:
+        try:
+            if locked:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
 
 def _logical_name(value: str) -> str:
@@ -305,20 +368,41 @@ class DvcVersionStore:
             _fail("invalid_name", "Artifact paths conflict.")
         if sum(path.stat().st_size for _, path in prepared) > self.max_total_bytes:
             _fail("input_limit", "Artifact data exceeds the size limit.")
-        version = self._require()
-        project, owner = self._scope(subject, project_id, create=True)
         if parent_revision_id is not None:
             self.get(subject, project_id, parent_revision_id)
-        revision = "dv_" + uuid.uuid4().hex
+        archive_key = safe_metadata.get("archive_key")
+        if archive_key is not None:
+            existing = self.find_archive(subject, project_id, archive_key)
+            if existing is not None:
+                self._check_archive_request(
+                    existing, prepared, safe_metadata, parent_revision_id
+                )
+                return existing
+        version = self._require()
+        project, owner = self._scope(subject, project_id, create=True)
+        revision = "dv_" + (
+            archive_key[:32] if archive_key is not None else uuid.uuid4().hex
+        )
         versions = _no_links(project / "v")
         versions.mkdir(mode=0o700, exist_ok=True)
-        pending = _no_links(versions / (".pending-" + revision))
+        # An interrupted attempt must not permanently occupy the content key.
+        # Only the final immutable directory is the published version identity.
+        pending_name = ".p-" + uuid.uuid4().hex[:24]
+        pending = _no_links(versions / pending_name)
         pending.mkdir(mode=0o700, exist_ok=False)
         workspace = pending / "w"
         if (
             os.name == "nt"
             and max(
-                len(str(workspace / ".dvc/cache/files/md5/00" / ("0" * 34))),
+                # DVC atomically writes a directory cache via a 22-character
+                # random suffix, not just the final 30-character MD5 + .dir.
+                len(
+                    str(
+                        workspace
+                        / ".dvc/cache/files/md5/00"
+                        / ("0" * 30 + ".dir." + "0" * 22 + ".tmp")
+                    )
+                ),
                 *(len(str(workspace / "data" / name)) for name, _ in prepared),
             )
             > 250
@@ -402,8 +486,52 @@ class DvcVersionStore:
         }
         record["receipt_sha256"] = _sha(_json_bytes(record))
         (pending / "receipt.json").write_bytes(_json_bytes(record))
-        pending.rename(versions / revision)
+        try:
+            pending.rename(versions / revision)
+        except OSError:
+            if archive_key is None or not (versions / revision).exists():
+                raise
+            # A caller outside the Harness coordinator may race publication.
+            # Reuse only an identical, fully verified immutable winner.
+            existing = self.find_archive(subject, project_id, archive_key)
+            if existing is None:
+                raise
+            self._check_archive_request(
+                existing, prepared, safe_metadata, parent_revision_id
+            )
+            return existing
         return self.get(subject, project_id, revision)
+
+    @staticmethod
+    def _check_archive_request(record, prepared, metadata, parent_revision_id):
+        expected = {name: file_sha256(path) for name, path in prepared}
+        actual = {item["path"]: item["sha256"] for item in record["files"]}
+        if (
+            record.get("metadata") != metadata
+            or record.get("parent_revision_id") != parent_revision_id
+            or actual != expected
+        ):
+            _fail(
+                "archive_identity_conflict",
+                "Archive identity does not match this request.",
+            )
+
+    def find_archive(self, subject: str, project_id: str, archive_key: str):
+        """Resolve one publication key; unrelated historical versions are not read."""
+        if not isinstance(archive_key, str) or not _ARCHIVE_KEY.fullmatch(archive_key):
+            _fail("invalid_archive_key", "Archive identity is invalid.")
+        revision = "dv_" + archive_key[:32]
+        project, _ = self._scope(subject, project_id)
+        directory = _no_links(project / "v" / revision)
+        if not directory.exists():
+            return None
+        record = self.get(subject, project_id, revision)
+        if (record.get("metadata") or {}).get("archive_key") != archive_key:
+            _fail(
+                "archive_identity_conflict",
+                "Archive identity does not match this version.",
+            )
+        return record
 
     def _load(
         self, subject: str, project_id: str, revision_id: str

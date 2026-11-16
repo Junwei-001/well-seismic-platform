@@ -31,6 +31,15 @@ MAX_CALLS = 12
 MAX_HISTORY = 100_000
 
 
+class _PreExecutionRejection(GaiaMiniMaxError):
+    """A known rejection before the provider or any business action can run."""
+
+    def __init__(self, code: str, message: str, conversation_id: str | None = None):
+        self.code = code
+        self.conversation_id = conversation_id
+        super().__init__(message)
+
+
 @dataclass
 class _Session:
     subject: str
@@ -56,7 +65,9 @@ def _session(subject: str, settings: GaiaMiniMaxSettings, requested: UUID | None
         key = str(requested) if requested else ""
         value = _sessions.get(key)
         if value and value.subject != subject:
-            raise GaiaMiniMaxError("对话不存在或不属于当前账号，请开启新对话。")
+            raise _PreExecutionRejection(
+                "conversation_unavailable", "对话不存在或不属于当前账号，请开启新对话。"
+            )
         if value is None or (value.provider, value.model) != (
             settings.provider_id,
             settings.model,
@@ -108,6 +119,38 @@ def _reference_summary(kind: str, value: Any) -> dict[str, Any] | None:
     return summary
 
 
+def _source_execution_summary(values: Any) -> dict[str, Any]:
+    """Bound recovery links to opaque execution IDs, never arbitrary metadata."""
+    if not isinstance(values, list):
+        return {}
+    selected = [
+        value for value in values
+        if isinstance(value, str) and re.fullmatch(r"hx_[0-9a-f]{32}", value)
+    ][:32]
+    result = {"source_execution_ids": selected}
+    if len(selected) != len(values):
+        result.update(
+            source_execution_ids_total=len(values),
+            source_execution_ids_count=len(selected),
+            source_execution_ids_truncated=True,
+        )
+    return result
+
+
+def _archive_recovery_summary(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("status") != "completed":
+        return None
+    for field, pattern in (("execution_id", r"hx_[0-9a-f]{32}"), ("revision_id", r"dv_[0-9a-f]{32}")):
+        if not isinstance(value.get(field), str) or not re.fullmatch(pattern, value[field]):
+            return None
+    if not isinstance(value.get("source_execution_ids"), list):
+        return None
+    return {
+        "execution_id": value["execution_id"], "revision_id": value["revision_id"],
+        "status": value["status"], **_source_execution_summary(value["source_execution_ids"]),
+    }
+
+
 def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     if len(json.dumps(receipt, ensure_ascii=False).encode("utf-8")) <= 12_000:
         return receipt
@@ -134,6 +177,21 @@ def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         "details_available": True,
         "message": "结果较长，完整内容保存在此执行记录中。",
     }
+    # Reserve bounded recovery references before optional lists consume the
+    # model budget. These link new archives to unchanged failed executions.
+    short["result"].update(_source_execution_summary(result.get("source_execution_ids")))
+    recovery = _archive_recovery_summary(result.get("archival_recovery"))
+    if recovery is not None:
+        short["result"]["archival_recovery"] = recovery
+    task = result.get("task")
+    if isinstance(task, dict):
+        registration = (task.get("result") or {}).get("registration") or {}
+        short["result"]["task"] = {
+            "status": task.get("status"),
+            "result": {
+                "registration": {"business_status": registration.get("business_status")}
+            },
+        }
     # Large lists must still let the next model turn select a real owned ID.
     # Keep latest versions first; assets/projects retain their registry order.
     def fits(candidate: dict[str, Any]) -> bool:
@@ -205,15 +263,6 @@ def _bounded_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
             candidate = {**short["result"], key: result[key]}
             if fits(candidate):
                 short["result"] = candidate
-    task = result.get("task")
-    if isinstance(task, dict):
-        registration = (task.get("result") or {}).get("registration") or {}
-        short["result"]["task"] = {
-            "status": task.get("status"),
-            "result": {
-                "registration": {"business_status": registration.get("business_status")}
-            },
-        }
     return short
 
 
@@ -314,7 +363,11 @@ def _run_huiyan_agent(
     actual_model = settings.model
     warning = ""
     if not session.lock.acquire(timeout=1):
-        raise GaiaMiniMaxError("当前对话正在处理另一条请求，请稍后再试。")
+        raise _PreExecutionRejection(
+            "conversation_busy",
+            "当前对话正在处理另一条请求。本次尚未调用模型或执行操作，请等待当前请求结束后重新发送。",
+            session_id,
+        )
     try:
         catalog = harness.catalog()
         actions = {item["name"]: item for item in catalog["actions"]}
@@ -597,16 +650,31 @@ def chat_with_huiyan_agent(
                 "warning": "此请求已登记，未重复执行；请查看操作状态。",
             }
         return saved
-    response = _run_huiyan_agent(
-        settings,
-        subject=subject,
-        question=question,
-        context=context,
-        conversation_id=conversation_id,
-        harness=harness,
-        request_id=request_id,
-        progress=lambda value: store.save_progress(subject, str(request_id), value),
-    )
+    try:
+        response = _run_huiyan_agent(
+            settings,
+            subject=subject,
+            question=question,
+            context=context,
+            conversation_id=conversation_id,
+            harness=harness,
+            request_id=request_id,
+            progress=lambda value: store.save_progress(subject, str(request_id), value),
+        )
+    except _PreExecutionRejection as exc:
+        # Only a known rejection before execution is safe to finalize. Unknown
+        # failures still retain the durable claim and must never be auto-replayed.
+        response = {
+            "answer": str(exc),
+            "actions": [],
+            "executions": [],
+            "source": "慧眼操作助手",
+            "provider": "unavailable",
+            "model": "",
+            "request_id": str(request_id),
+            "conversation_id": exc.conversation_id,
+            "error": {"code": exc.code, "message": str(exc)},
+        }
     response["request_state"] = "finished"
     store.finish(subject, str(request_id), response)
     return response

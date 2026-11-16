@@ -124,3 +124,95 @@ def test_model_can_use_retained_revision_id_in_next_real_tool_dispatch(tmp_path)
     assert h.execute.call_count == 2
     assert h.execute.call_args_list[1].args[2]["revision_id"] == "dv_" + f"{12:032x}"
     assert [item["operation"] for item in result["executions"]] == ["dvc_list", "dvc_get"]
+
+
+def test_large_task_status_retains_verified_archive_recovery_and_old_failure():
+    original = {
+        "execution_id": "hx_" + "b" * 32, "status": "blocked",
+        "error": {"code": "versioning_incomplete", "message": "归档未完成"},
+    }
+    recovery = {
+        "execution_id": "hx_" + "c" * 32, "revision_id": "dv_" + "d" * 32,
+        "status": "completed", "source_execution_ids": [original["execution_id"]],
+    }
+    receipt = {
+        "execution_id": "hx_" + "a" * 32, "operation": "task_status",
+        "status": "completed", "task_id": "e" * 32,
+        "result": {
+            "task_id": "e" * 32, "original_executions": [original],
+            "archival_recovery": {**recovery, "private_path": "D:/private/sample.npy"},
+            "task": {"status": "completed", "result": {"large": "x" * 13000}},
+        },
+    }
+    compact = _bounded_receipt(receipt)
+    assert compact["result"]["archival_recovery"] == recovery
+    assert compact["result"]["original_executions"] == [original]
+    assert compact["result"]["task_id"] == "e" * 32
+    assert "private_path" not in str(compact) and "D:/private" not in str(compact)
+    assert len(encoded(compact)) <= 12000
+
+
+def test_large_manual_archive_preserves_bounded_valid_execution_links():
+    sources = ["hx_" + f"{index:032x}" for index in range(70)]
+    sources.append("D:/private/source-execution")
+    receipt = {
+        "execution_id": "hx_" + "a" * 32, "operation": "dvc_archive",
+        "status": "completed", "revision_id": "dv_" + "b" * 32,
+        "result": {
+            "task_id": "c" * 32, "source_execution_ids": sources,
+            "files": [{"path": "D:/private/output.npy", "values": [1.0] * 3000}],
+        },
+    }
+    compact = _bounded_receipt(receipt)
+    result = compact["result"]
+    assert result["task_id"] == "c" * 32
+    assert result["source_execution_ids"] == sources[:32]
+    assert result["source_execution_ids_total"] == 71
+    assert result["source_execution_ids_count"] == 32
+    assert result["source_execution_ids_truncated"] is True
+    assert compact["revision_id"] == receipt["revision_id"]
+    assert "private" not in str(compact) and "values" not in str(compact)
+    assert len(encoded(compact)) <= 12000
+
+
+def test_recovery_links_reserve_budget_and_discard_invalid_identifiers():
+    receipt = versions_receipt(70)
+    sources = ["hx_" + f"{index:032x}" for index in range(70)]
+    receipt["result"]["archival_recovery"] = {
+        "execution_id": "hx_" + "c" * 32, "revision_id": "dv_" + "d" * 32,
+        "status": "completed", "source_execution_ids": sources,
+    }
+    compact = _bounded_receipt(receipt)
+    recovery = compact["result"]["archival_recovery"]
+    assert recovery["source_execution_ids"] == sources[:32]
+    assert recovery["source_execution_ids_truncated"] is True
+    assert compact["result"]["versions_count"] > 0
+    assert len(encoded(compact)) <= 12000
+    receipt["result"]["archival_recovery"]["revision_id"] = "D:/private/revision"
+    invalid = _bounded_receipt(receipt)
+    assert "archival_recovery" not in invalid["result"]
+    assert "private" not in str(invalid)
+
+
+
+def test_native_task_state_reserves_space_before_large_lists():
+    assets = [{
+        "id": "ha_" + f"{i:032x}", "name": "汉" * 39, "project_id": PROJECT,
+        "role": "log", "sha256": "b" * 64, "private": "x" * 1000,
+    } for i in range(70)]
+    receipt = {
+        "operation": "asset_list", "status": "completed", "result": {
+            "assets": assets,
+            "task": {"status": "running", "result": {"registration": {"business_status": "blocked"}}},
+            "archival_recovery": {
+                "execution_id": "hx_" + "c" * 32, "revision_id": "dv_" + "d" * 32,
+                "status": "completed", "source_execution_ids": ["hx_" + f"{i:032x}" for i in range(32)],
+            },
+        },
+    }
+    compact = _bounded_receipt(receipt)
+    assert compact["result"]["task"]["status"] == "running"
+    assert compact["result"]["task"]["result"]["registration"]["business_status"] == "blocked"
+    assert compact["result"]["archival_recovery"] == receipt["result"]["archival_recovery"]
+    assert 0 < compact["result"]["assets_count"] < 70
+    assert len(encoded(compact)) <= 12000
