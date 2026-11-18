@@ -11843,9 +11843,9 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
                 "source": (
                     "后端模型信息（本次调用已核对）"
                     if is_model_identity_question(sanitize_llm_text(request.message))
-                    else "盖亚 MiniMax（复用配置）"
+                    else f"{gaia_minimax.display_label} 助手"
                 ),
-                "provider": "gaia_minimax",
+                "provider": gaia_minimax.provider,
                 "model": actual_model,
                 "request_id": "",
                 "conversation_id": conversation_id,

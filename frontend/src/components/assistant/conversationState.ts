@@ -125,6 +125,13 @@ const safeWarnings = new Set([
   "本地备用模型调用失败，请检查后端服务后重试。",
 ]);
 
+for (const label of ["DeepSeek", "OpenAI", "MiniMax"]) {
+  for (const reason of ["回复超过长度限制，请缩短问题后重试。", "凭据无效或当前模型未获授权，请检查模型配置。", "当前限流或额度不足，请稍后重试。", "服务暂时不可用，请稍后重试。", "未返回有效回答，请重试。"])
+    safeWarnings.add(`${label} ${reason}`);
+  safeWarnings.add(`连接 ${label} 超时或网络不可用，请稍后重试。`);
+}
+safeWarnings.add("助手模型配置无效，请检查后端配置和已启用的模型。");
+
 function publicWarning(warning: string | undefined, provider: string, agent = false): string | undefined {
   if (!warning?.trim() && provider !== "local") return;
   const reasons = new Set((warning || "").split(";").map((part) => {
@@ -147,7 +154,7 @@ export function acceptAssistantResponse(request: AssistantRequest, response: Ass
     text: response.answer,
     source: response.source,
     model: response.provider === "local" ? undefined : response.model,
-    modelLabel: response.provider === "gaia_minimax" ? "接口返回模型" : "配置模型",
+    modelLabel: ["gaia_minimax", "gaia_openai"].includes(response.provider) ? "接口返回模型" : "配置模型",
     warning: publicWarning(response.warning, response.provider, response.executions !== undefined),
     actions: response.actions,
     executions: response.executions,

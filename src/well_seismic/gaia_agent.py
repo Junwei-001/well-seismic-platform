@@ -321,6 +321,15 @@ _REPLY_LABELS = {
     "viewer_available": "结果是否可查看",
     "truncated": "未列全",
     "preview": "预览",
+    "completed": "已完成",
+    "archived": "已归档",
+    "running": "运行中",
+    "queued": "排队中",
+    "failed": "失败",
+    "blocked": "受阻",
+    "cancelled": "已取消",
+    "interrupted": "已中断",
+    "p21_query_points": "P21 查询点",
 }
 _REPLY_FIELDS = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
@@ -329,21 +338,43 @@ _REPLY_FIELDS = re.compile(
 )
 _ID_VALUE = (
     r"(?:(?:sha256:|[a-z]{1,4}_)?[0-9a-f]{32,64}"
-    r"|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+    r"|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+    r"|j_[0-9a-f]{16}|opmjob-[0-9a-f]{12}|对应记录)"
 )
 _INTERNAL_ID = re.compile(r"(?<![A-Za-z0-9_])" + _ID_VALUE + r"(?![A-Za-z0-9_])", re.IGNORECASE)
+_ID_REFERENCE = (
+    r"(?:task_id|project_id|revision_id|execution_id|job_id|operation_id|"
+    r"(?:任务|工区|作业|执行|版本|归档版本)(?:\s*(?:编号|标识|ID))?)"
+    r"(?:\s*(?:为|是|[:：=])\s*|\s+)" + _ID_VALUE + r"(?![A-Za-z0-9_])"
+)
 _ID_SENTENCE = re.compile(
-    r"(?<![^。！？；\n])\s*(?:\d+[.、]\s*)?`?"
-    r"(?:task_id|project_id|revision_id|execution_id|job_id|operation_id)"
-    r"`?\s*(?:为|是|[:：=])\s*`?" + _ID_VALUE + r"`?\s*[。！？；\n]?",
+    r"(?<![^。！？；\n])[ \t]*(?:\d+[.、][ \t]*)?"
+    + _ID_REFERENCE + r"[ \t]*(?:[。！？；\n]|$)",
+    re.IGNORECASE,
+)
+_INTERNAL_URL = r"(?:https?://[^\s/<>()]+)?/api/[^\s<>()\[\]，。、；！？（）\"']+"
+_EMPTY_BUSINESS_STATE = re.compile(
+    r"(?:返回的(?:任务)?结果(?:里|中)[，,]\s*)?"
+    r"(?:标定(?:环节)的)?(?:业务状态(?:字段)?|business_status)"
+    r"\s*(?:为空|[:：=]\s*(?:null|none))(?=[。；\n]|$)[。；]?",
     re.IGNORECASE,
 )
 
 
 def _clean_reply(answer: str) -> str:
-    # Remove standalone machine references, retain the surrounding facts.
+    # Keep any link labels and scientific qualifiers while removing service
+    # addresses, formatting and opaque identifiers from the conversation.
+    answer = re.sub(r"\[([^\]\n]+)\]\(" + _INTERNAL_URL + r"\)", r"\1", answer)
+    answer = re.sub(r"[:：][ \t\n]*" + _INTERNAL_URL, "。", answer)
+    answer = re.sub(_INTERNAL_URL, "", answer)
+    answer = re.sub(r"(\*\*|__)(?=\S)(.+?)\1", r"\2", answer)
+    answer = re.sub(r"`([^`\n]+)`", r"\1", answer)
+    answer = re.sub(r"(?m)^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)", "", answer)
+    answer = re.sub(r"[（(][ \t]*(?:" + _ID_REFERENCE + "|" + _ID_VALUE + r")[ \t]*[）)]", "", answer, flags=re.I)
     answer = _ID_SENTENCE.sub("", answer)
-    answer = _INTERNAL_ID.sub("对应记录", answer)
+    answer = re.sub(_ID_REFERENCE, "", answer, flags=re.I)
+    answer = _INTERNAL_ID.sub("", answer)
+    answer = _EMPTY_BUSINESS_STATE.sub("", answer)
     answer = re.sub(r"(?i)\bpreview\b\s*为空对象\s*\{\}", "暂无预览", answer)
     answer = re.sub(
         r"(?i)\bviewer_available\b\s*[:：=]\s*(true|false)",
@@ -351,6 +382,9 @@ def _clean_reply(answer: str) -> str:
         answer,
     )
     answer = _REPLY_FIELDS.sub(lambda match: _REPLY_LABELS[match[0].lower()], answer)
+    answer = answer.replace("P21 查询点（P21 查询点）", "P21 查询点")
+    answer = re.sub(r"(?m)^[ \t]*[，,；：]+[ \t]*", "", answer)
+    answer = re.sub(r"\n(?:[ \t]*\n){2,}", "\n\n", answer)
     return answer.strip()
 
 
@@ -415,21 +449,37 @@ def _unfinished_answer(
     return "\n".join(reversed(lines))
 
 
+_INTERNAL_VIEW_FIELDS = {"viewer_url", "viewer_kind", "viewer_entry", "view_type"}
+
+
+def _provider_result(value: Any) -> Any:
+    """Project a receipt for the model without changing the browser receipt."""
+    if isinstance(value, list):
+        return [_provider_result(item) for item in value]
+    if isinstance(value, dict):
+        result = {
+            key: _provider_result(item) for key, item in value.items()
+            if key not in _INTERNAL_VIEW_FIELDS and key != "viewer_available"
+            and not (key == "business_status" and item is None)
+        }
+        if value.get("viewer_available") is True:
+            result["可查看结果"] = True
+        for key in ("preview", "registration"):
+            if key in result and not result[key]:
+                del result[key]
+        return result
+    if isinstance(value, str) and re.fullmatch(_INTERNAL_URL, value):
+        return ""
+    return value
+
+
 def _provider_receipt(receipt: dict[str, Any]) -> str:
     """Keep tool references the model needs without repeating audit metadata."""
     payload = {
-        key: receipt[key]
+        key: _provider_result(receipt[key]) if key == "result" else receipt[key]
         for key in ("status", "task_id", "project_id", "revision_id", "result", "error")
         if key in receipt
     }
-    result = payload.get("result")
-    if isinstance(result, dict):
-        result = {**result}
-        if not result.get("preview"):
-            result.pop("preview", None)
-        if result.pop("viewer_available", False):
-            result["可查看结果"] = True
-        payload["result"] = result
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -446,29 +496,45 @@ def _provider_turn(settings, system, messages, tools):
         ]
         response = request_openai_message(settings, payload)
         choice = response["choices"][0]
-        assistant = choice["message"]
+        provider_message = choice["message"]
+        assistant = {"role": "assistant", "content": provider_message.get("content")}
         stop = choice.get("finish_reason")
         if stop not in {"stop", "tool_calls", "length"}:
             raise GaiaMiniMaxError("本次未取得完整回答，请重试。")
         if stop == "length":
             return response["model"], assistant, [], "", True
-        calls = []
-        for call in assistant.get("tool_calls") or []:
+        calls, replay_calls = [], []
+        for call in provider_message.get("tool_calls") or []:
             if (
                 not isinstance(call, dict) or call.get("type") != "function"
                 or not isinstance(call.get("function"), dict)
             ):
                 raise GaiaMiniMaxError("模型工具请求格式无效，本轮未执行新的操作。")
             function = call["function"]
+            name, raw_arguments = function.get("name"), function.get("arguments")
+            if not isinstance(name, str) or not isinstance(raw_arguments, str):
+                raise GaiaMiniMaxError("模型工具请求格式无效，本轮未执行新的操作。")
             try:
-                arguments = json.loads(function.get("arguments", ""))
+                arguments = json.loads(raw_arguments)
             except (ValueError, TypeError, RecursionError):
                 arguments = None
-            calls.append({"id": call.get("id"), "name": function.get("name"), "input": arguments})
+            calls.append({"id": call.get("id"), "name": name, "input": arguments})
+            replay_calls.append({
+                "id": call.get("id"), "type": "function",
+                "function": {"name": name, "arguments": raw_arguments},
+            })
         if bool(calls) != (stop == "tool_calls"):
             raise GaiaMiniMaxError("模型工具请求格式无效，本轮未执行新的操作。")
+        if replay_calls:
+            assistant["tool_calls"] = replay_calls
         # DeepSeek thinking-mode continuations require the opaque reasoning
         # content alongside tool_calls in each subsequent provider request.
+        for field in ("reasoning_content", "reasoning"):
+            if isinstance(provider_message.get(field), str):
+                assistant[field] = provider_message[field]
+        details = provider_message.get("reasoning_details")
+        if isinstance(details, list) and details:
+            assistant["reasoning_details"] = details
         return response["model"], assistant, calls, (assistant.get("content") or "").strip(), False
 
     response = request_minimax_message(settings, {**payload, "system": system, "messages": messages, "tools": tools})
@@ -533,6 +599,9 @@ def _run_huiyan_agent(
             "你是地层慧眼的地球物理助手。用自然、简洁的中文说明发现、结果和下一步，"
             "界面以纯文本呈现。不要在答复中写任务编号、项目编号、版本标识、哈希、"
             "内部工具名或 JSON 字段，也不要重复泛泛的免责声明。"
+            "操作成功后，用一到三句话回答用户请求，说明主要结果和必要的科学范围。"
+            "已有可视化时，提示使用界面里的结果按钮。"
+            "不要列回执、生成接口链接、提及空字段，或附上用户未问的后续步骤和条件。"
             "按明确意图操作，使用当前任务已关联的工区和资产。"
             "当前任务未关联工区时，按用户意图创建或导入；未选任务时可查询账号下的工区。"
             "需要完整清单时，按工具返回的下一页位置继续查询。"

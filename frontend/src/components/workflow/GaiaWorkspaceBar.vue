@@ -63,7 +63,7 @@ async function showNativeResult(value: { jobRef: string; taskId: string }, curre
   return true;
 }
 
-async function followRun(id: string, current: number, expected?: AssistantTaskReference) {
+async function followRun(id: string, current: number, expected?: AssistantTaskReference, expectedTaskId?: string) {
   if (!validRef(id)) throw new Error("盖亚任务编号无效");
   selectedRun.value = id;
   taskId.value = "";
@@ -76,12 +76,13 @@ async function followRun(id: string, current: number, expected?: AssistantTaskRe
     window.parent.postMessage(isLegacyGaiaEmbedded ? { type: "huiyan:run", runId: id } : { type: "huiyan:job", jobRef: id }, window.location.origin);
   }
   // An AI receipt must match the owner-checked job before changing the parent URL.
-  if (!expected) announceSelection();
+  if (!expected && !expectedTaskId) announceSelection();
   const deadline = Date.now() + 180_000;
   while (current === generation && !controller.signal.aborted) {
     const run = normalizeJob(await gaia(`/${id}`));
     if (current !== generation || controller.signal.aborted) return;
     if (run.ref !== id) throw new Error("任务返回结果不匹配，请重新打开任务");
+    if (expectedTaskId && run.task_id && run.task_id !== expectedTaskId) throw new Error("链接中的任务与所选结果不匹配，请重新打开任务");
     if (expected && run.kind !== "harness") throw new Error("任务返回结果不匹配，请重新打开任务");
     status.value = statusLabel(run.status);
     if (run.kind === "harness" && run.receipt && !["submitted", "working"].includes(run.status)) {
@@ -99,7 +100,7 @@ async function followRun(id: string, current: number, expected?: AssistantTaskRe
         throw new Error("原生任务尚未完成或执行失败，请刷新执行状态后再查看结果");
       }
       if (run.receipt.status === "completed" && /^[0-9a-f]{32}$/.test(run.task_id || "")) {
-        if (expected) announceSelection();
+        if (expected || expectedTaskId) announceSelection();
         taskId.value = run.task_id;
         if (!await showNativeResult({ jobRef: id, taskId: taskId.value }, current)) return false;
       }
@@ -110,6 +111,7 @@ async function followRun(id: string, current: number, expected?: AssistantTaskRe
       const report = run.report;
       if (!/^[0-9a-f]{32}$/.test(run.task_id || "") || report?.task_id !== run.task_id || report.validation_status !== "validated") throw new Error("缺少已核验的慧眼结果");
       taskId.value = run.task_id;
+      if (expectedTaskId) announceSelection();
       if (!await showNativeResult({ jobRef: id, taskId: taskId.value }, current)) return false;
       await loadHistory();
       return Boolean(taskId.value);
@@ -120,11 +122,11 @@ async function followRun(id: string, current: number, expected?: AssistantTaskRe
   }
 }
 
-async function openRun(id: string) {
+async function openRun(id: string, expectedTaskId?: string) {
   const current = ++generation;
   busy.value = true;
   error.value = "";
-  try { await followRun(id, current); }
+  try { await followRun(id, current, undefined, expectedTaskId); }
   catch (cause) { if (current === generation && !controller.signal.aborted) error.value = cause instanceof Error ? cause.message : "读取失败"; }
   finally { if (current === generation && !controller.signal.aborted) busy.value = false; }
 }
@@ -312,7 +314,9 @@ onMounted(async () => {
     if (!isLegacyGaiaEmbedded) loadProjects().catch(() => { if (!controller.signal.aborted) assetError.value = "工区列表暂不可用，请重试。"; });
     window.parent.postMessage({ type: "huiyan:ready" }, window.location.origin);
     const requested = new URLSearchParams(window.location.search).get(isLegacyGaiaEmbedded ? "run_id" : "job_ref");
-    if (requested) await openRun(requested);
+    const requestedTask = new URLSearchParams(window.location.search).get("task_id") || undefined;
+    if (requestedTask && !/^[0-9a-f]{32}$/.test(requestedTask)) throw new Error("链接中的任务无效，请重新打开任务");
+    if (requested) await openRun(requested, requestedTask);
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "盖亚工作区加载失败"; }
 });
 onBeforeUnmount(() => { generation++; controller.abort(); });

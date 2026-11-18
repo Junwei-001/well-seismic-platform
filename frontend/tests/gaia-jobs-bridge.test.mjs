@@ -157,7 +157,7 @@ test("App restores native preparation, registration and PreparedView then opens 
     const tasks = nativeTasks(), installed = [], views = [];
     const preparationScreen = vue.ref("input"), errorMessage = vue.ref("");
     const exposed = evaluate(source + "\nexports.restore = restoreGaiaResult;", {}, {
-      gaiaSelectionEpoch: 1, componentUnmounted: false, loadGaiaTaskChain,
+      gaiaSelectionEpoch: 1, workbenchNavigationEpoch: 0, componentUnmounted: false, loadGaiaTaskChain,
       getTask: async id => tasks[id], preparationScreen, errorMessage,
       pointVisualizationTaskId: vue.ref(""),
       restoreCompletedDataPreparationTask: task => installed.push(task.task_id),
@@ -196,7 +196,7 @@ function appPersistenceHarness(writeError) {
     isWorkflowResult: nativeApi.isWorkflowResult,
     isHorizontalRegistrationTaskResult: nativeApi.isHorizontalRegistrationTaskResult,
     initializeVisualization() {},
-    gaiaSelectionEpoch: 1, componentUnmounted: false, loadGaiaTaskChain,
+    gaiaSelectionEpoch: 1, workbenchNavigationEpoch: 0, componentUnmounted: false, loadGaiaTaskChain,
     getTask: async id => tasks[id], preparationScreen: vue.ref("input"), errorMessage: vue.ref(""),
     pointVisualizationTaskId: vue.ref(""),
     restoreCompletedDataPreparationTask() {}, selectView() {},
@@ -339,7 +339,7 @@ test("App forwards both assistant views through the existing Gaia workspace bar"
   const source = app.slice(start, app.indexOf("\nlet gaiaSelectionEpoch", start));
   const calls = [], busy = vue.ref(false), drawer = vue.ref(true);
   const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
-    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {},
+    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {}, nextTick: vue.nextTick,
     isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy, assistantResultError: vue.ref(""), assistantDrawerOpen: drawer,
     gaiaWorkspaceBar: vue.ref({ openAssistantResult: async value => { calls.push(value); return true; } }),
   });
@@ -376,7 +376,7 @@ test("failed result restoration keeps the assistant open and exposes a safe visi
   let release;
   const pending = new Promise(resolve => { release = resolve; });
   const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
-    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {},
+    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {}, nextTick: vue.nextTick,
     isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy,
     assistantResultError: resultError, assistantDrawerOpen: drawer,
     gaiaWorkspaceBar: vue.ref({ openAssistantResult: () => pending }),
@@ -463,9 +463,9 @@ test("completed P21 result opens the central visualization and retains both shel
   const location = { href: `http://localhost/api/plug/huiyan/ui/?job_ref=${J}&task_id=${TASK}#visualization`, origin: "http://localhost" };
   const urls = [];
   const module = evaluate(source + "\nexports.restore = restoreGaiaResult;", {}, {
-    gaiaSelectionEpoch: 1, componentUnmounted: false,
+    gaiaSelectionEpoch: 1, workbenchNavigationEpoch: 0, componentUnmounted: false,
     getTask: async id => ({ task_id: id, status: "completed", result: { prediction: { model_id: "sixtrack_reconstruction_p21" } } }),
-    pointVisualizationTaskId: point, pointVisualizationReady: ready, taskId: task, activeView: view,
+    pointVisualizationTaskId: point, pointVisualizationReady: ready, pointVisualizationEpoch: vue.ref(0), taskId: task, activeView: view,
     sidebarDirectoryLevel: vue.ref(""), assistantDrawerOpen: drawer, errorMessage: vue.ref(""),
     window: { location, history: { replaceState: (...args) => urls.push(args[2]) } },
     loadGaiaTaskChain: () => { throw new Error("P21 must not require a preparation chain"); },
@@ -507,4 +507,22 @@ test("new workflow identities clear a previously selected P21 view without chang
   assert.equal(point.value, ""); assert.equal(ready.value,false); assert.equal(task.value,SAMPLE);
   assert.equal((app.match(/<GaiaWorkspaceBar ref="gaiaWorkspaceBar"/g)||[]).length,1);
   assert.match(app, /<Teleport v-if="isGaiaEmbedded" defer/);
+});
+
+test("a deep link cannot substitute a task from another job", async () => {
+  const h=harness(false, async url=>ok(url.endsWith(J)?statusJob():{items:[]}));
+  await h.openRun(J,SAMPLE);
+  assert.equal(h.events.some(([kind])=>kind==='completed'),false);
+  assert.equal(h.messages.length,0);
+  assert.match(h.error.value,/不匹配/);
+});
+
+test("P21 readiness resets on leaving and returning to a recreated frame", () => {
+  const app=read("App.vue"),start=app.indexOf("watch(activeView, (next, previous) => {");
+  const source=app.slice(start,app.indexOf("\nwatch(taskId",start));
+  const view=vue.ref("visualization"),ready=vue.ref(true),epoch=vue.ref(1);
+  evaluate(source,{}, {watch:vue.watch,activeView:view,pointVisualizationTaskId:vue.ref(TASK),pointVisualizationReady:ready,pointVisualizationEpoch:epoch});
+  view.value="assistant";assert.equal(ready.value,false);
+  view.value="visualization";assert.equal(epoch.value,2);assert.equal(ready.value,false);
+  assert.match(app,/:key="`\$\{pointVisualizationTaskId\}:\$\{pointVisualizationEpoch\}`"/);
 });

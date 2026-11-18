@@ -535,3 +535,74 @@ def test_openai_interrupted_turn_keeps_ledger_without_synthetic_provider_history
     ]
     assert request["messages"][2]["reasoning_content"] == "first-provider-reasoning"
     assert "interrupted-reasoning" not in str(request)
+
+
+def test_live_p21_answer_shape_keeps_facts_without_technical_receipt_noise(tmp_path):
+    h = harness(tmp_path)
+    h.catalog.return_value["actions"] = [{
+        "name": "visualization", "description": "Check the workbench result",
+        "parameters": {"type": "object"},
+    }]
+    task_id = "a" * 32
+    api_path = f"/api/v1/gaia/harness/tasks/{task_id}/visualization"
+    receipt = {
+        "operation": "visualization", "status": "completed", "task_id": task_id,
+        "result": {
+            "viewer_url": api_path, "viewer_available": True, "viewer_kind": "p21_query_points",
+            "preview": {}, "task": {"result": {"registration": {"business_status": None}}},
+        },
+    }
+    h.execute.return_value = receipt
+    reply = (
+        "已全部完成。\n\n**工区**\n- 新建「Volve 演示工区」（工区 ID：对应记录），暂无其他资产登记。\n"
+        "**第 0 折 P21 三维条件重建**\n- 任务 对应记录，状态：completed\n- 版本：对应记录\n"
+        "**归档**\n- 版本存储状态为 archived。\n"
+        "**三维视图**\n- 已生成可交互结果页面，视图类型为 P21 查询点（p21_query_points），入口位于慧眼结果页面：\n"
+        "  /api/v1/gaia/harness/tasks/对应记录/结果查看\n"
+        "**需要注意**\n- 返回的任务结果里，标定环节的业务状态字段为空。"
+        f"当前显示第 0 折查询点，可通过[结果按钮]({api_path})查看。"
+    )
+    with patch("well_seismic.gaia_agent.request_minimax_message", side_effect=[
+        response([call("visualization", {"task_id": task_id})], "tool_use"), text(reply),
+    ]) as model:
+        result = run(h)
+    answer = result["answer"]
+    assert all(word not in answer for word in (
+        "**", "/api/", "对应记录", "completed", "archived", "p21_query_points", "业务状态字段为空", task_id,
+    ))
+    assert "新建「Volve 演示工区」，暂无其他资产登记。" in answer
+    assert "当前显示第 0 折查询点，可通过结果按钮查看。" in answer
+    assert all(word in answer for word in ("P21 查询点", "已归档", "已完成"))
+    payload = model.call_args.args[1]
+    tool_reply = json.loads(payload["messages"][-1]["content"][0]["content"])
+    assert tool_reply["task_id"] == task_id
+    assert tool_reply["result"]["可查看结果"] is True
+    assert all(word not in json.dumps(tool_reply) for word in (
+        "viewer_url", "viewer_kind", "business_status", "/api/", "p21_query_points",
+    ))
+    assert result["executions"] == [receipt]
+
+
+@pytest.mark.parametrize("empty_calls", [[], None])
+def test_openai_second_user_turn_replays_only_supported_assistant_fields(tmp_path, deepseek, empty_calls):
+    h = harness(tmp_path)
+    first_response = json.load(openai_response("工区已查询。", reasoning="opaque-first"))
+    first_response["choices"][0]["message"].update({
+        "tool_calls": empty_calls, "refusal": None, "annotations": [],
+    })
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            io.BytesIO(json.dumps(first_response).encode()), openai_response("可以。"),
+        ]
+        first = chat_with_huiyan_agent(
+            deepseek, subject=SUBJECT, question="查询工区", context={},
+            conversation_id=None, harness=h,
+        )
+        chat_with_huiyan_agent(
+            deepseek, subject=SUBJECT, question="能再查一次吗", context={},
+            conversation_id=UUID(first["conversation_id"]), harness=h,
+        )
+    retained = json.loads(opener.return_value.open.call_args.args[0].data)["messages"][2]
+    assert retained == {
+        "role": "assistant", "content": "工区已查询。", "reasoning_content": "opaque-first",
+    }

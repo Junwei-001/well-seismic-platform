@@ -217,6 +217,7 @@ let activeSnapshotReconciliationPromise: Promise<boolean> | null = null;
 const groups = ref<PathGroup[]>(createDefaultPathGroups());
 
 const activeView = ref<ViewKey>("overview");
+let workbenchNavigationEpoch = 0;
 const assistantDrawerOpen = ref(isGaiaEmbedded);
 watch(activeView, (view) => {
   if (view === "assistant") assistantDrawerOpen.value = false;
@@ -2428,6 +2429,7 @@ function canonicalView(view: ViewKey): ViewKey {
 }
 
 function selectView(view: ViewKey) {
+  workbenchNavigationEpoch += 1;
   if (view === "visualization" && pointVisualizationTaskId.value) {
     activeView.value = "visualization";
     window.location.hash = "visualization";
@@ -7289,6 +7291,7 @@ async function enableTransformDraft(issue: PreparationIssue, draft: Transformati
 }
 
 function syncViewFromHash() {
+  workbenchNavigationEpoch += 1;
   if (window.location.hash === "#visualization" && pointVisualizationTaskId.value) {
     activeView.value = "visualization";
     return;
@@ -7688,6 +7691,13 @@ const gaiaWorkspaceBar = ref<InstanceType<typeof GaiaWorkspaceBar> | null>(null)
 const pointVisualizationTaskId = ref("");
 const pointVisualizationFrame = ref<HTMLIFrameElement | null>(null);
 const pointVisualizationReady = ref(false);
+const pointVisualizationEpoch = ref(0);
+watch(activeView, (next, previous) => {
+  if (pointVisualizationTaskId.value && next !== previous) {
+    pointVisualizationReady.value = false;
+    if (next === "visualization") pointVisualizationEpoch.value += 1;
+  }
+}, { flush: "sync" });
 watch(taskId, (next, previous) => {
   if (next !== previous && next !== pointVisualizationTaskId.value) {
     pointVisualizationTaskId.value = "";
@@ -7718,7 +7728,11 @@ async function openAssistantTaskResult(reference: AssistantTaskReference) {
     else assistantResultError.value = "无法打开任务结果，请确认任务已完成且属于当前账号，或刷新后重试。";
   } catch {
     assistantResultError.value = "暂时无法打开任务结果，请稍后重试。";
-  } finally { endAssistantResultNavigation(); assistantResultOpening.value = false; }
+  } finally {
+    await nextTick();
+    endAssistantResultNavigation();
+    assistantResultOpening.value = false;
+  }
 }
 
 let gaiaSelectionEpoch = 0;
@@ -7747,7 +7761,8 @@ function clearGaiaResult() {
 
 async function restoreGaiaResult(value: { taskId: string }) {
   const epoch = gaiaSelectionEpoch;
-  const current = () => epoch === gaiaSelectionEpoch && !componentUnmounted;
+  const navigationEpoch = workbenchNavigationEpoch;
+  const current = () => epoch === gaiaSelectionEpoch && navigationEpoch === workbenchNavigationEpoch && !componentUnmounted;
   try {
     const selected = await getTask(value.taskId);
     if (!current()) return false;
@@ -7755,6 +7770,7 @@ async function restoreGaiaResult(value: { taskId: string }) {
     const prediction = (selected.result as PredictionTaskResult | null)?.prediction;
     if (prediction?.model_id === "sixtrack_reconstruction_p21") {
       pointVisualizationTaskId.value = selected.task_id;
+      pointVisualizationEpoch.value += 1;
       pointVisualizationReady.value = false;
       activeView.value = "visualization";
       sidebarDirectoryLevel.value = "primary";
@@ -7788,6 +7804,7 @@ onMounted(async () => {
   if (isGaiaEmbedded) {
     componentUnmounted = false;
     syncViewFromHash();
+    const startupNavigation = workbenchNavigationEpoch;
     window.addEventListener("hashchange", syncViewFromHash);
     try {
       const service = await health();
@@ -7801,6 +7818,9 @@ onMounted(async () => {
     }
     releaseCatalogLoading.value = false;
     cacheStatusLoading.value = false;
+    if (/^[0-9a-f]{32}$/.test(requestedVisualization) && startupNavigation === workbenchNavigationEpoch && !new URLSearchParams(window.location.search).get("job_ref")) {
+      await restoreGaiaResult({ taskId: requestedVisualization });
+    }
     return;
   }
   const initialPreparationIntent: PreparationScreen | null = window.location.hash.replace("#", "") === "samples"
@@ -7812,6 +7832,7 @@ onMounted(async () => {
   };
   componentUnmounted = false;
   syncViewFromHash();
+  const startupNavigation = workbenchNavigationEpoch;
   let freshSessionRequested = false;
   let pathConfigRestored = false;
   let sessionStorageUsable = true;
@@ -7882,7 +7903,7 @@ onMounted(async () => {
   void refreshSystemCacheStatus();
   if (activeView.value === "evaluation") void refreshAcceptanceSnapshot();
 
-  if (/^[0-9a-f]{32}$/.test(requestedVisualization)) {
+  if (/^[0-9a-f]{32}$/.test(requestedVisualization) && startupNavigation === workbenchNavigationEpoch) {
     await restoreGaiaResult({ taskId: requestedVisualization });
     return;
   }
@@ -8990,7 +9011,7 @@ onBeforeUnmount(() => {
 
       <template v-else-if="activeView === 'visualization'">
         <section v-if="pointVisualizationTaskId" class="point-visualization-panel" aria-label="P21 三维条件属性重建" :aria-busy="!pointVisualizationReady">
-          <iframe ref="pointVisualizationFrame" :key="pointVisualizationTaskId" :src="pointVisualizationUrl" title="P21 三维条件属性重建" class="point-visualization-frame"></iframe>
+          <iframe ref="pointVisualizationFrame" :key="`${pointVisualizationTaskId}:${pointVisualizationEpoch}`" :src="pointVisualizationUrl" title="P21 三维条件属性重建" class="point-visualization-frame"></iframe>
         </section>
         <section v-else-if="!seismicInventory.length && !seismicPreviewCount && !wellLogPreviews.length" class="empty-workflow">
           <strong>当前任务没有可用于预览的数据</strong>
