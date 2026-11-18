@@ -469,6 +469,39 @@ def test_corrected_same_page_retry_uses_distinct_operation_ids_and_stays_success
     assert len(seen) == 2 and h.execute.call_count == 2
 
 
+@pytest.mark.parametrize("same_project", [True, False])
+def test_missing_required_p21_argument_retry_preserves_actual_outcome(tmp_path, deepseek, same_project):
+    h = harness(tmp_path)
+    project = "hp_" + "a" * 32
+    retried_project = project if same_project else "hp_" + "b" * 32
+    h.catalog.return_value["actions"] = [{
+        "name": "p21_reconstruction", "description": "Run owned P21",
+        "parameters": {"type": "object", "properties": {
+            "project_id": {"type": "string"}, "fold_id": {"type": "integer"},
+        }, "required": ["project_id", "fold_id"]},
+    }]
+    h.execute.side_effect = [HTTPException(422, "missing fold"), {
+        "operation": "p21_reconstruction", "status": "completed",
+        "project_id": retried_project, "revision_id": "dv_" + "c" * 32,
+        "result": {"viewer_available": True},
+    }]
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            openai_response(calls=[openai_call("p21_reconstruction", json.dumps({"project_id": project}), "call_0")]),
+            openai_response(calls=[openai_call("p21_reconstruction", json.dumps({"project_id": retried_project, "fold_id": 0}), "call_0")]),
+            openai_response("三维重建已完成并归档。"),
+        ]
+        result = chat_with_huiyan_agent(
+            deepseek, subject=SUBJECT, question="运行第零折重建", context={},
+            conversation_id=None, harness=h,
+        )
+    assert [r["status"] for r in result["executions"]] == ["failed", "completed"]
+    if same_project:
+        assert result["answer"] == "三维重建已完成并归档。"
+    else:
+        assert "未能完成" in result["answer"]
+
+
 def test_successful_query_never_masks_invalid_arguments_for_another_task(tmp_path):
     h = harness(tmp_path)
     h.catalog.return_value["actions"] = [{

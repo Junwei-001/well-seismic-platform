@@ -439,8 +439,21 @@ def _unfinished_answer(
         error = receipt.get("error") or {}
         # A corrected schema rejection did not start a native operation.
         # Never suppress real execution failures or a different target.
-        if target in completed_targets and error.get("code") == "invalid_arguments":
-            continue
+        if target is not None and error.get("code") == "invalid_arguments":
+            # Schema rejection starts no work. A retry may supply a missing
+            # required field, but must preserve every supplied target value.
+            failed_arguments = json.loads(target[1])
+            superseded = False
+            for completed_operation, encoded_arguments in completed_targets:
+                completed_arguments = json.loads(encoded_arguments)
+                if completed_operation == target[0] and all(
+                    key in completed_arguments and completed_arguments[key] == value
+                    for key, value in failed_arguments.items()
+                ):
+                    superseded = True
+                    break
+            if superseded:
+                continue
         reason = error.get("message")
         reason = _clean_reply(reason[:240]) if isinstance(reason, str) else ""
         line = f"{label}{detail}。" + reason
