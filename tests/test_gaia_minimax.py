@@ -358,8 +358,12 @@ def test_standalone_openai_chat_uses_tool_agent_with_local_owner():
     ):
         result = api.assistant_chat(request)
     assert result == expected
-    binding.assert_called_once_with("local-workbench", None)
-    assert agent.call_args.kwargs["subject"] == "local-workbench"
+    import hashlib
+    from well_seismic.huiyan_harness import HuiyanHarness
+    local_subject = hashlib.sha256(b"well-seismic:local-workbench").hexdigest()
+    HuiyanHarness.subject(local_subject)  # Use the real unchanged identity guard.
+    binding.assert_called_once_with(local_subject, None)
+    assert agent.call_args.kwargs["subject"] == local_subject
     assert agent.call_args.kwargs["harness"] is api._huiyan_harness
     assert agent.call_args.kwargs["request_id"] == request.request_id
     plain_chat.assert_not_called()

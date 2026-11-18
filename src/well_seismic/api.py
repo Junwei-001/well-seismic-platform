@@ -12040,6 +12040,10 @@ app.include_router(build_huiyan_harness_router(_huiyan_harness))
 
 def assistant_chat_authenticated(request: AssistantChatRequest, *, subject: str) -> dict[str, Any]:
     from .gaia_agent import chat_with_huiyan_agent
+    # The loopback desktop alias is server-selected, never a Gaia user input.
+    # Keep the same strict opaque principal contract as authenticated callers.
+    if subject == "local-workbench":
+        subject = hashlib.sha256(b"well-seismic:local-workbench").hexdigest()
     try:
         settings = GaiaMiniMaxSettings.from_environment()
         if settings is None:
