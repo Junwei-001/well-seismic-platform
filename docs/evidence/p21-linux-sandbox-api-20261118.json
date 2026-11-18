@@ -1,0 +1,15 @@
+{
+  "phase": "verify",
+  "task_action_status": "completed",
+  "native_status": "completed",
+  "view_action_status": "completed",
+  "viewer_available": true,
+  "viewer_kind": "p21_query_points",
+  "dvc_get_status": "completed",
+  "dvc_revision_id": "dv_c9edd4d885373e4439a78bf606f85049",
+  "dvc_file_count": 5,
+  "page_has_canvas": true,
+  "page_has_view_selector": true,
+  "page_has_2048": true,
+  "page_bytes": 173111
+}
