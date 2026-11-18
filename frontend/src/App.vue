@@ -218,7 +218,7 @@ const groups = ref<PathGroup[]>(createDefaultPathGroups());
 
 const activeView = ref<ViewKey>("overview");
 let workbenchNavigationEpoch = 0;
-const assistantDrawerOpen = ref(isGaiaEmbedded);
+const assistantDrawerOpen = ref(true);
 watch(activeView, (view) => {
   if (view === "assistant") assistantDrawerOpen.value = false;
 });
@@ -8168,9 +8168,9 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              :class="['nav-item', { active: activeView === item.id }]"
+              :class="['nav-item', { active: activeView === item.id || (activeView === 'visualization' && Boolean(pointVisualizationTaskId) && item.id === 'prediction') }]"
               :data-view="item.id"
-              :aria-current="activeView === item.id ? 'page' : undefined"
+              :aria-current="activeView === item.id || (activeView === 'visualization' && Boolean(pointVisualizationTaskId) && item.id === 'prediction') ? 'page' : undefined"
               @click="selectView(item.id)"
             >
               <span class="nav-icon" aria-hidden="true">
@@ -8178,7 +8178,7 @@ onBeforeUnmount(() => {
                   <path v-for="path in navigationIconPaths[item.id]" :key="path" :d="path" />
                 </svg>
               </span>
-              <span class="nav-label">{{ item.label }}</span>
+              <span class="nav-label">{{ item.sidebarLabel || item.label }}</span>
               <span v-if="navigationState(item.id)" class="nav-state">{{ navigationState(item.id) }}</span>
               <span class="nav-chevron" aria-hidden="true">{{ item.id === 'prediction' || item.id === 'layerpulse' ? '↗' : '›' }}</span>
             </button>
@@ -8285,8 +8285,9 @@ onBeforeUnmount(() => {
       ]"
     >
       <div v-if="activeView !== 'overview'" :class="['topbar', { 'prediction-topbar': activeView === 'prediction' || activeView === 'layerpulse' }]">
-        <div class="topbar-context"><span>地层慧眼</span><b>/</b><strong>{{ currentMeta.eyebrow }}</strong></div>
+        <div class="topbar-context"><span>地层慧眼</span><b>/</b><strong>{{ activeView === 'visualization' && pointVisualizationTaskId ? '单任务推理模型' : currentMeta.eyebrow }}</strong></div>
         <div class="topbar-account">
+          <a v-if="isGaiaEmbedded" href="/app/#/chatbox/huiyan" target="_top" class="topbar-return-link">返回盖亚</a>
           <span :class="['topbar-status', backendStatus]"></span>
           <span>{{ backendStatus === "online" ? "本地工作区" : "服务未连接" }}</span>
           <b>⌄</b>

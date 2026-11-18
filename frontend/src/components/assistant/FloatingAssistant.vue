@@ -206,7 +206,7 @@ watch(
 .strata-assistant-avatar svg { width:29px; height:29px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
 .strata-assistant-identity { min-width:0; flex:1; }
 .strata-assistant-identity h2 { margin:0; font-size:16px; line-height:1.3; }
-.strata-assistant-identity > span { color:var(--muted, #6f7e91); font-size:12px; }
+.strata-assistant-identity > span { white-space:nowrap; color:var(--muted, #6f7e91); font-size:12px; }
 .assistant-new-chat { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; color:#627785; background:transparent; border:0; border-radius:8px; cursor:pointer; }
 .assistant-new-chat:hover { background:#edf3f5; }
 .assistant-new-chat svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }

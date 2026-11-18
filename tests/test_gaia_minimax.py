@@ -336,3 +336,30 @@ def test_fallback_generator_exception_never_returns_private_details():
     assert response["warning"] == "本地备用模型调用失败，请检查后端服务后重试。"
     assert "private-test-key" not in json.dumps(response)
     assert "private" not in json.dumps(response)
+
+
+def test_standalone_openai_chat_uses_tool_agent_with_local_owner():
+    from well_seismic import api
+    from well_seismic.api_models import AssistantChatRequest
+    from well_seismic.gaia_chat import GaiaChatSettings
+
+    settings = GaiaMiniMaxSettings(
+        "deepseek-chat", "deepseek-chat", "unit-test-only-key", protocol="openai",
+    )
+    request = AssistantChatRequest(message="运行P21并查看结果")
+    expected = {"answer": "已完成。", "executions": [{"operation": "p21_reconstruction", "status": "completed"}]}
+    with (
+        patch.object(GaiaChatSettings, "from_environment", return_value=GaiaChatSettings("", "", "", 10)),
+        patch.object(GaiaMiniMaxSettings, "from_environment", return_value=settings),
+        patch.object(api, "_assistant_context", return_value={}),
+        patch.object(api._huiyan_harness, "assistant_context", return_value={}) as binding,
+        patch("well_seismic.gaia_agent.chat_with_huiyan_agent", return_value=expected) as agent,
+        patch.object(api, "chat_with_gaia_minimax") as plain_chat,
+    ):
+        result = api.assistant_chat(request)
+    assert result == expected
+    binding.assert_called_once_with("local-workbench", None)
+    assert agent.call_args.kwargs["subject"] == "local-workbench"
+    assert agent.call_args.kwargs["harness"] is api._huiyan_harness
+    assert agent.call_args.kwargs["request_id"] == request.request_id
+    plain_chat.assert_not_called()

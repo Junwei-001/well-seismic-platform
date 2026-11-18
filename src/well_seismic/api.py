@@ -11830,6 +11830,8 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
             gaia_error = "盖亚对话暂不可用"
     try:
         gaia_minimax = GaiaMiniMaxSettings.from_environment()
+        if gaia_minimax is not None and gaia_minimax.provider == "gaia_openai":
+            return assistant_chat_authenticated(request, subject="local-workbench")
         if gaia_minimax is not None:
             answer, conversation_id, actual_model = chat_with_gaia_minimax(
                 gaia_minimax,
