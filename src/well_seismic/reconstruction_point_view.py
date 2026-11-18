@@ -121,7 +121,7 @@ const low=Math.min(...data.map(p=>p[3])),high=Math.max(...data.map(p=>p[3])),
  valueScale=Math.max(Math.abs(low),Math.abs(high),1),valueLow=low/valueScale,valueHigh=high/valueScale;
 document.getElementById('point-range').textContent=`${number(low)} – ${number(high)}`;
 document.getElementById('point-max').textContent=number(high);document.getElementById('point-mid').textContent=number(low/2+high/2);document.getElementById('point-min').textContent=number(low);
-let yaw=.65,pitch=.5,zoom=1,view='3d',projected=[],drag=null,w=900,h=520,readyNotified=false;
+let yaw=-2.45,pitch=.55,zoom=1,view='3d',projected=[],drag=null,w=900,h=520,readyNotified=false;
 function setView(next){view=next;buttons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.pointView===view)));draw();}
 if(!strata){yaw=.6;pitch=-.4;}
 let fittedScale=1,fittedX=0,fittedY=0;
@@ -162,16 +162,20 @@ function frame(){
  if(strata){
   const box=project(lo.map((v,k)=>(v+hi[k])/2));
   for(let axis=0;axis<3;axis++){
-   for(const t of [0,1]){
-    if(t===0&&axis>0)continue;
-    const point=lo.slice();point[axis]=lo[axis]*(1-t)+hi[axis]*t;
-    const p=project(point),dx=p.x-box.x,dy=p.y-box.y,length=Math.hypot(dx,dy)||1;
-    const label=Number(point[axis]).toPrecision(3),width=ctx.measureText(label).width;
-    const at=labelPosition(label,p.x+dx/length*22-width/2,p.y+dy/length*22+4);
-    ctx.fillText(label,at.x,at.y);
+   const other=[0,1,2].filter(k=>k!==axis);let edge=null,score=-1;
+   for(let a=0;a<2;a++)for(let b=0;b<2;b++){
+    const from=lo.slice();from[other[0]]=a?hi[other[0]]:lo[other[0]];from[other[1]]=b?hi[other[1]]:lo[other[1]];
+    const to=from.slice();to[axis]=hi[axis];const mid=project(from.map((v,k)=>(v+to[k])/2));
+    const distance=(mid.x-box.x)**2+(mid.y-box.y)**2;
+    if(distance>score){score=distance;edge={from,to,mid};}
    }
-   const end=lo.slice();end[axis]=hi[axis];const p=project(end),dx=p.x-box.x,dy=p.y-box.y,length=Math.hypot(dx,dy)||1;
-   ctx.font='bold 13px system-ui,sans-serif';const at=labelPosition('XYZ'[axis],p.x+dx/length*42,p.y+dy/length*42+4);ctx.fillText('XYZ'[axis],at.x,at.y);ctx.font='12px system-ui,sans-serif';
+   const dx=edge.mid.x-box.x,dy=edge.mid.y-box.y,length=Math.hypot(dx,dy)||1;
+   for(const [t,point] of [[0,edge.from],[1,edge.to]]){
+    const p=project(point),label=Number(point[axis]).toPrecision(3),width=ctx.measureText(label).width;
+    const at=labelPosition(label,p.x+dx/length*20-width/2,p.y+dy/length*20+4);ctx.fillText(label,at.x,at.y);
+   }
+   ctx.font='bold 13px system-ui,sans-serif';
+   const at=labelPosition('XYZ'[axis],edge.mid.x+dx/length*40-4,edge.mid.y+dy/length*40+4);ctx.fillText('XYZ'[axis],at.x,at.y);ctx.font='12px system-ui,sans-serif';
   }return;
  }
  for(let axis=0;axis<3;axis++){
@@ -244,7 +248,7 @@ canvas.addEventListener('pointermove',e=>{
  detail.textContent='';
 });
 buttons.forEach(button=>button.addEventListener('click',()=>setView(button.dataset.pointView)));
-function reset(){yaw=strata ? .65 : .6;pitch=strata ? .5 : -.4;zoom=1;setView('3d');}
+function reset(){yaw=strata ? -2.45 : .6;pitch=strata ? .55 : -.4;zoom=1;setView('3d');}
 document.getElementById('point-reset').addEventListener('click',reset);
 canvas.addEventListener('dblclick',reset);
 canvas.addEventListener('wheel',event=>{if(!strata)return;event.preventDefault();zoom=Math.max(.65,Math.min(2.5,zoom*Math.exp(-event.deltaY*.001)));draw();},{passive:false});
