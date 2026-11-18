@@ -17,6 +17,9 @@ def build_local_workbench_router(harness: HuiyanHarness) -> APIRouter:
         # Never trust forwarded headers or accept a principal from the browser.
         if not request.client or not is_loopback(request.client.host):
             raise HTTPException(403, "Desktop workbench routes are loopback only")
+        host = request.url.hostname or ""
+        if host != "localhost" and not is_loopback(host):
+            raise HTTPException(403, "Desktop workbench requires a loopback host")
         origin = request.headers.get("origin")
         if origin and origin != str(request.base_url).rstrip("/"):
             raise HTTPException(403, "Desktop workbench requires same origin")

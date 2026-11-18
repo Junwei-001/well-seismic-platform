@@ -564,7 +564,7 @@ def test_restore_preserves_all_sealed_asset_roles(harness, tmp_path):
 def test_local_project_upload_bridge_uses_real_parser_owner_and_archive(harness):
     from well_seismic.local_workbench import build_local_workbench_router, LOCAL_WORKBENCH_SUBJECT
     app = FastAPI(); app.include_router(build_local_workbench_router(harness))
-    with TestClient(app, client=('127.0.0.1', 50000)) as client:
+    with TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000)) as client:
         operation_id = str(uuid.uuid4())
         payload = {'operation':'project_create','operation_id':operation_id,'arguments':{'name':'Local LAS demo'}}
         created = client.post('/api/v1/workbench/actions', json=payload)
@@ -591,9 +591,10 @@ def test_local_project_upload_bridge_uses_real_parser_owner_and_archive(harness)
     ('192.0.2.12', {}),
     ('192.0.2.12', {'X-Forwarded-For':'127.0.0.1'}),
     ('127.0.0.1', {'Origin':'https://untrusted.example'}),
+    ('127.0.0.1', {'Host':'untrusted.example','Origin':'http://untrusted.example'}),
 ])
 def test_local_workbench_rejects_remote_clients_and_cross_origin(harness,host,headers):
     from well_seismic.local_workbench import build_local_workbench_router
     app=FastAPI();app.include_router(build_local_workbench_router(harness))
-    with TestClient(app, client=(host,50000)) as client:
+    with TestClient(app, base_url='http://127.0.0.1', client=(host,50000)) as client:
         assert client.post('/api/v1/workbench/actions',json={'operation':'project_list','arguments':{}},headers=headers).status_code==403
