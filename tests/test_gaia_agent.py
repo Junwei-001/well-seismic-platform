@@ -1,5 +1,7 @@
 """Provider-contract tests: actual calls, scoped ownership, partial failures."""
 
+import io
+import json
 from unittest.mock import Mock, patch
 from uuid import UUID
 
@@ -202,9 +204,9 @@ def test_non_string_tool_name_cannot_crash_or_execute(tmp_path):
 @pytest.mark.parametrize(
     "state, expected",
     [
-        ("blocked", "受阻，未完成"),
-        ("running", "运行中，尚未完成"),
-        ("failed", "失败，未完成"),
+        ("blocked", "暂未完成"),
+        ("running", "仍在运行"),
+        ("failed", "未能完成"),
     ],
 )
 def test_provider_cannot_claim_success_over_noncompleted_receipt(
@@ -260,8 +262,8 @@ def test_partial_run_keeps_completed_items_and_rejects_false_overall_success(tmp
         ],
     ):
         result = run(h)
-    assert "1. project_list：已完成" in result["answer"]
-    assert "2. project_list：受阻，未完成" in result["answer"]
+    assert "查询工区暂未完成" in result["answer"]
+    assert "project_list" not in result["answer"]
     assert "尚未提供必需资产" in result["answer"]
     assert "全部操作均已成功" not in result["answer"]
     assert result["executions"] == [completed, blocked]
@@ -279,8 +281,7 @@ def test_completed_explanation_and_plain_qa_are_preserved(tmp_path):
     ):
         completed = run(h)
         qa = run(h)
-    assert "project_list：已完成" in completed["answer"]
-    assert "当前没有项目，请先创建工程。" in completed["answer"]
+    assert completed["answer"] == "当前没有项目，请先创建工程。"
     assert qa["answer"] == "井震标定用于建立测井深度与地震时间的对应关系。"
     assert qa["executions"] == []
 
@@ -288,8 +289,8 @@ def test_completed_explanation_and_plain_qa_are_preserved(tmp_path):
 @pytest.mark.parametrize(
     "result, expected",
     [
-        ({"native_status": "running"}, "原生任务：运行中，尚未完成"),
-        ({"task": {"status": "failed"}}, "原生任务：失败，未完成"),
+        ({"native_status": "running"}, "当前任务仍在运行"),
+        ({"task": {"status": "failed"}}, "当前任务未能完成"),
         (
             {
                 "task": {
@@ -297,7 +298,7 @@ def test_completed_explanation_and_plain_qa_are_preserved(tmp_path):
                     "result": {"registration": {"business_status": "blocked"}},
                 }
             },
-            "标定业务状态：受阻，未完成",
+            "井震标定未通过质量检查",
         ),
     ],
 )
@@ -319,6 +320,113 @@ def test_completed_query_never_claims_underlying_task_completed(
         ],
     ):
         answer = run(h)["answer"]
-    assert "task_status：已完成" in answer
+    assert "task_status" not in answer
     assert expected in answer
     assert "预测和标定均已全部成功" not in answer
+
+
+def openai_response(content=None, *, calls=None, reasoning=None, stop=None):
+    message = {"role": "assistant", "content": content}
+    if calls is not None:
+        message["tool_calls"] = calls
+    if reasoning is not None:
+        message["reasoning_content"] = reasoning
+    return io.BytesIO(json.dumps({
+        "model": "deepseek-v4-flash",
+        "choices": [{"message": message, "finish_reason": stop or ("tool_calls" if calls else "stop")}],
+    }).encode())
+
+
+def openai_call(name, args, call_id):
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": args}}
+
+
+@pytest.fixture
+def deepseek():
+    return GaiaMiniMaxSettings(
+        "deepseek", "deepseek-v4-flash", "unit-only-key", protocol="openai",
+        endpoint="https://api.deepseek.com/v1/chat/completions",
+    )
+
+
+def test_openai_tool_transcript_waits_for_p21_and_returns_its_archive(tmp_path, deepseek):
+    h = harness(tmp_path)
+    h.catalog.return_value["actions"].append({
+        "name": "p21_reconstruction", "description": "Volve P21",
+        "parameters": {"type": "object"},
+    })
+    project_id = "hp_" + "a" * 32
+    p21 = {
+        "execution_id": "hx_" + "b" * 32, "operation": "p21_reconstruction",
+        "task_id": "c" * 32, "project_id": project_id, "status": "running",
+        "result": {"native_task_submitted": True},
+    }
+    listed = {**h.execute.return_value, "result": {"projects": [{"id": project_id, "name": "Volve"}]}}
+    h.execute.side_effect = [listed, p21]
+    archived = {**p21, "status": "completed", "revision_id": "dv_" + "d" * 32,
+                "result": {"native_status": "completed", "preview": {}, "viewer_available": True}}
+    h.wait_for_fast_run.return_value = archived
+    project_call = openai_call("project_list", "{}", "list-1")
+    predict_call = openai_call("p21_reconstruction", json.dumps({"project_id": project_id, "fold_id": 0}), "p21-1")
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            openai_response(calls=[project_call], reasoning="opaque-project-reasoning"),
+            openai_response(calls=[predict_call], reasoning="opaque-p21-reasoning"),
+            openai_response("Volve P21 三维重建已完成并归档。"),
+        ]
+        result = chat_with_huiyan_agent(
+            deepseek, subject=SUBJECT, question="请完成 Volve P21 第 0 折重建",
+            context={}, conversation_id=None, harness=h,
+        )
+    assert result["provider"] == "gaia_openai" and result["display_label"] == "DeepSeek"
+    assert result["answer"] == "Volve P21 三维重建已完成并归档。"
+    assert result["executions"] == [listed, archived]
+    assert "opaque-" not in str(result)
+    assert h.execute.call_args.kwargs == {"defer_settlement": True}
+    assert h.wait_for_fast_run.call_count == 1
+    first = json.loads(opener.return_value.open.call_args_list[0].args[0].data)
+    assert first["messages"][0]["role"] == "system"
+    assert first["tools"][1]["function"]["name"] == "p21_reconstruction"
+    last = json.loads(opener.return_value.open.call_args.args[0].data)
+    assert [entry["role"] for entry in last["messages"]] == [
+        "system", "user", "assistant", "tool", "assistant", "tool",
+    ]
+    assert last["messages"][2]["reasoning_content"] == "opaque-project-reasoning"
+    assert last["messages"][4]["tool_calls"] == [predict_call]
+    tool = last["messages"][-1]
+    receipt = json.loads(tool["content"])
+    assert tool["tool_call_id"] == "p21-1"
+    assert receipt["status"] == "completed" and receipt["revision_id"] == archived["revision_id"]
+    assert not {"preview", "viewer_available"} & receipt["result"].keys()
+    assert "execution_id" not in receipt
+
+
+@pytest.mark.parametrize("calls, stop", [
+    ([openai_call("project_list", "{", "call-1")], "tool_calls"),
+    ([openai_call("project_list", "{}", "same")] * 2, "tool_calls"),
+    ([openai_call("project_list", "{}", "partial")], "length"),
+])
+def test_openai_invalid_or_truncated_tool_calls_never_execute(tmp_path, deepseek, calls, stop):
+    h = harness(tmp_path)
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            openai_response(calls=calls, stop=stop),
+            openai_response("已完成。"),
+        ]
+        result = chat_with_huiyan_agent(
+            deepseek, subject=SUBJECT, question="列出工区",
+            context={}, conversation_id=None, harness=h,
+        )
+    assert result["warning"] or result["executions"][0]["status"] == "failed"
+    h.execute.assert_not_called()
+
+
+def test_model_reply_keeps_prose_without_echoing_receipt_ids(tmp_path):
+    h = harness(tmp_path)
+    internal = "dv_" + "d" * 32
+    with patch("well_seismic.gaia_agent.request_minimax_message", side_effect=[
+        response([call()], "tool_use"),
+        text(f"已查到工区。revision_id 为 {internal}。可继续导入测井数据。"),
+    ]):
+        result = run(h)
+    assert result["answer"] == "已查到工区。可继续导入测井数据。"

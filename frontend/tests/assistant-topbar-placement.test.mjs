@@ -20,7 +20,9 @@ test("Huiyan AI remains a first-level page and also opens from business pages", 
   assert.match(appSource, /class="assistant-drawer-launcher"/);
   assert.match(appSource, /aria-label="慧眼AI 对话侧栏"/);
   assert.match(appSource, /v-show="assistantDrawerOpen"/);
-  assert.match(appSource, /class="assistant-drawer-toolbar"/);
+  assert.doesNotMatch(appSource, /class="assistant-drawer-toolbar"/);
+  assert.match(assistantSource, /class="assistant-close"[^>]*aria-label="关闭慧眼助手"/);
+  assert.match(appSource, /<FloatingAssistant[\s\S]*?closable[\s\S]*?@close="assistantDrawerOpen = false"/);
 });
 
 test("Huiyan AI shares one conversation between the full page and in-page sidebar", () => {
@@ -28,8 +30,8 @@ test("Huiyan AI shares one conversation between the full page and in-page sideba
   assert.doesNotMatch(themeSource, /topbar-assistant-slot/);
   assert.doesNotMatch(assistantSource, /<Teleport|position:\s*fixed|startDrag|strata-assistant-launcher/);
   assert.match(themeSource, /\.main-content\.assistant-content \{[\s\S]*?height: calc\(100dvh - var\(--topbar-height\)\);[\s\S]*?overflow: hidden;/);
-  assert.match(assistantSource, /\.strata-assistant-workspace \{[\s\S]*?height: 100%;[\s\S]*?grid-template-rows: auto auto minmax\(0, 1fr\) auto auto;/);
-  assert.match(assistantSource, /\.strata-assistant-messages \{[\s\S]*?min-height: 0;[\s\S]*?overflow-y: auto;/);
+  assert.match(assistantSource, /\.strata-assistant-workspace\s*\{[^}]*flex-direction:\s*column;[^}]*height:\s*100%;/);
+  assert.match(assistantSource, /\.strata-assistant-messages\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/);
   assert.match(apiSource, /conversation_id: conversationId \|\| null/);
   assert.match(assistantSource, /assistantMessages as messages/);
   assert.match(assistantSource, /class="strata-assistant-composer"/);

@@ -21,7 +21,7 @@ function harness(legacy = false, fetchOverride, restoreResult) {
   const calls = [], events = [], messages = [];
   let mounted, unmount;
   const window = { location: { href: `http://localhost${legacy ? "/api/workflow-runs/huiyan/ui/" : "/api/plug/huiyan/ui/"}`, origin: "http://localhost", search: "" }, history: { replaceState() {} }, parent: { postMessage: (...args) => messages.push(args) } };
-  const result = evaluate(bridge + "\nexports.api = { start, openRun, openAssistantResult, file, busy, error, history, normalizeJob };", {
+  const result = evaluate(bridge + "\nexports.api = { start, openRun, openAssistantResult, file, busy, error, history, normalizeJob, projectAction, loadProjects, createProject, uploadAsset, fileRole, projects, selectedProject, newProjectName, assetStatus, assetError };", {
     vue: { ...vue, onMounted: (fn) => { mounted = fn; }, onBeforeUnmount: (fn) => { unmount = fn; } }, "../../gaiaEmbed": { isLegacyGaiaEmbedded: legacy }, "../../assistantTaskResult": taskReferences,
   }, { window, defineProps: () => ({ restoreResult }), defineExpose: () => {}, defineEmits: () => (...args) => events.push(args), fetch: async (url, init) => {
     calls.push({ url, init });
@@ -159,6 +159,7 @@ test("App restores native preparation, registration and PreparedView then opens 
     const exposed = evaluate(source + "\nexports.restore = restoreGaiaResult;", {}, {
       gaiaSelectionEpoch: 1, componentUnmounted: false, loadGaiaTaskChain,
       getTask: async id => tasks[id], preparationScreen, errorMessage,
+      pointVisualizationTaskId: vue.ref(""),
       restoreCompletedDataPreparationTask: task => installed.push(task.task_id),
       installCompletedWorkflowTask: task => installed.push(task.task_id),
       selectView: view => views.push(view),
@@ -197,6 +198,7 @@ function appPersistenceHarness(writeError) {
     initializeVisualization() {},
     gaiaSelectionEpoch: 1, componentUnmounted: false, loadGaiaTaskChain,
     getTask: async id => tasks[id], preparationScreen: vue.ref("input"), errorMessage: vue.ref(""),
+    pointVisualizationTaskId: vue.ref(""),
     restoreCompletedDataPreparationTask() {}, selectView() {},
   });
   return { ...exported.api, writes, warnings, tasks, refs };
@@ -343,7 +345,7 @@ test("App forwards both assistant views through the existing Gaia workspace bar"
   await module.open(reference);
   assert.equal(calls[0], reference);
   assert.equal(busy.value, false);
-  assert.equal(drawer.value, false);
+  assert.equal(drawer.value, true, "result navigation keeps assistant usable");
 });
 
 test("bridge waits for real native restoration and reports failed restoration without a success event", async () => {
@@ -402,4 +404,93 @@ test("an obsolete failed restoration cannot overwrite a newer bridge selection",
   release(false);
   assert.equal(await old, false);
   assert.equal(h.error.value, "");
+});
+
+
+test("project creation uses an idempotent Gaia action and selects the receipt-owned project", async () => {
+  let currentOperation = ""; const actionIds = [];
+  const h = harness(false, async (url, init = {}) => {
+    if (url === "/api/plug/huiyan/actions") {
+      const body = JSON.parse(init.body); currentOperation = body.operation;
+      actionIds.push(body.operation_id);
+      if (currentOperation === "project_create" && actionIds.length === 1) throw new Error("connection interrupted");
+      return ok({ ref: J });
+    }
+    assert.equal(url, `/api/plug/huiyan/jobs/${J}`);
+    return ok({ ref: J, kind: "harness", operation: currentOperation, status: "completed",
+      receipt: { operation: currentOperation, status: "completed", result: currentOperation === "project_create"
+        ? { project_id: PROJECT, name: "Field A" } : { projects: [{ id: PROJECT, name: "Field A" }], next_offset: null } } });
+  });
+  h.newProjectName.value = "Field A";
+  await h.createProject();
+  assert.match(h.assetError.value, /暂未完成/);
+  await h.createProject();
+  assert.equal(actionIds[0], actionIds[1], "retry must reuse operation identity after transport failure");
+  assert.equal(h.selectedProject.value, PROJECT);
+  assert.equal(h.projects.value[0].name, "Field A");
+  assert.equal(h.assetStatus.value, "工区已创建");
+});
+
+test("role-aware uploads go only to selected owner project, report partial archive honestly", async () => {
+  const h = harness(false, async (url, init) => {
+    assert.equal(url, `/api/plug/huiyan/projects/${PROJECT}/assets/seismic`);
+    assert.equal(init.method, "POST"); assert.equal(init.credentials, "same-origin");
+    assert.equal(init.body.get("file").name, "synthetic.sgy");
+    return ok({ asset: { project_id: PROJECT, role: "seismic" }, versioning: { status: "blocked" } });
+  });
+  h.projects.value = [{ id: PROJECT, name: "Field A" }]; h.selectedProject.value = PROJECT;
+  h.fileRole.value = "seismic"; h.file.value = new File(["synthetic"], "synthetic.sgy");
+  await h.uploadAsset();
+  assert.equal(h.assetStatus.value, "数据已上传，归档未完成，可重新尝试归档");
+  assert.notEqual(h.file.value, null, "retain file so the server can safely recover archiving");
+});
+
+test("mismatched upload receipt and foreign project selection cannot claim success", async () => {
+  const h = harness(false, async () => ok({ asset: { project_id: "hp_" + "f".repeat(32), role: "log" } }));
+  h.projects.value = [{ id: PROJECT, name: "Field A" }]; h.selectedProject.value = PROJECT;
+  h.file.value = new File(["synthetic"], "sample.las"); await h.uploadAsset();
+  assert.match(h.assetError.value, /未完成/); assert.notEqual(h.file.value, null);
+  h.selectedProject.value = "hp_" + "e".repeat(32); const priorCalls = h.calls.length;
+  await h.uploadAsset(); assert.equal(h.calls.length, priorCalls);
+});
+
+test("completed P21 result opens the central visualization and retains both shell contexts", async () => {
+  const app = read("App.vue"), start = app.indexOf("async function restoreGaiaResult(");
+  const source = app.slice(start, app.indexOf("\nonMounted(", start));
+  const point = vue.ref(""), ready = vue.ref(false), task = vue.ref(""), view = vue.ref("overview"), drawer = vue.ref(false);
+  const location = { href: `http://localhost/api/plug/huiyan/ui/?job_ref=${J}&task_id=${TASK}#visualization`, origin: "http://localhost" };
+  const urls = [];
+  const module = evaluate(source + "\nexports.restore = restoreGaiaResult;", {}, {
+    gaiaSelectionEpoch: 1, componentUnmounted: false,
+    getTask: async id => ({ task_id: id, status: "completed", result: { prediction: { model_id: "sixtrack_reconstruction_p21" } } }),
+    pointVisualizationTaskId: point, pointVisualizationReady: ready, taskId: task, activeView: view,
+    sidebarDirectoryLevel: vue.ref(""), assistantDrawerOpen: drawer, errorMessage: vue.ref(""),
+    window: { location, history: { replaceState: (...args) => urls.push(args[2]) } },
+    loadGaiaTaskChain: () => { throw new Error("P21 must not require a preparation chain"); },
+  });
+  assert.equal(await module.restore({ taskId: TASK }), true);
+  assert.equal(point.value, TASK); assert.equal(task.value, TASK);
+  assert.equal(view.value, "visualization"); assert.equal(drawer.value, true);
+  assert.equal(ready.value, false, "HTML navigation is not successful drawing");
+  assert.equal(urls[0].searchParams.get("job_ref"), J);
+  assert.equal(urls[0].hash, "#visualization");
+  assert.match(app, /ref="pointVisualizationFrame"[^>]+:src="pointVisualizationUrl"/);
+});
+
+test("central canvas readiness requires exact origin, iframe and selected task", () => {
+  const app = read("App.vue"), start = app.indexOf("function onPointVisualizationReady(");
+  const source = app.slice(start, app.indexOf("\nconst assistantResultOpening", start));
+  const ready = vue.ref(false), frameWindow = vue.markRaw({}), calls = [];
+  const module = evaluate(source + "\nexports.receive=onPointVisualizationReady;", {}, {
+    pointVisualizationReady: ready, pointVisualizationTaskId: vue.ref(TASK),
+    pointVisualizationFrame: vue.ref({ contentWindow: frameWindow }), isGaiaEmbedded: true,
+    window: { location: { origin: "http://localhost" }, parent: { postMessage: (...args) => calls.push(args) } },
+  });
+  const event = { origin: "http://localhost", source: frameWindow, data: { type: "huiyan:visualization-ready", taskId: TASK } };
+  for (const wrong of [{ ...event, origin: "https://foreign.invalid" }, { ...event, source: {} },
+    { ...event, data: { ...event.data, taskId: SAMPLE } }, { ...event, data: { type: "huiyan:ready", taskId: TASK } }]) {
+    module.receive(wrong); assert.equal(ready.value, false); assert.equal(calls.length, 0);
+  }
+  module.receive(event); assert.equal(ready.value, true); assert.equal(calls.length, 1);
+  assert.equal(calls[0][0].taskId, TASK); assert.equal(calls[0][1], "http://localhost");
 });

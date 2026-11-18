@@ -1310,6 +1310,7 @@ export interface DataFlowContract {
 
 export interface Capabilities {
   assistant?: {
+    display_label?: string;
     available: boolean;
     provider: string;
     model: string;

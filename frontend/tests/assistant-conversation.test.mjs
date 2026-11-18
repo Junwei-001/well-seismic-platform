@@ -48,7 +48,7 @@ function harness(t, taskId = "task-a") {
   const component = scope.run(() => evaluate(componentScript + `
     exports.sendMessage = sendMessage;
     exports.openTaskResult = openTaskResult;
-    exports.bindings = { ...props, connectionLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef, assistantTaskResultReference, openTaskResult };
+    exports.bindings = { ...props, modelLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef, assistantTaskResultReference, openTaskResult, attachmentOpen, executionLabel, lastResult, openLastResult, handleInputKey, readableAnswer };
     exports.inputRef = inputRef;
   `, { vue: componentVue, "../../api": api, "./conversationState": state, "../../assistantTaskResult": evaluate(taskReferenceSource, {}) }, {
     defineProps: () => props,
@@ -245,4 +245,18 @@ test("receipt navigation emits only checked IDs and is unavailable outside the G
   h.openTaskResult({ ...receipt, status: "blocked" });
   h.openTaskResult({ ...receipt, task_id: "https://untrusted.invalid" });
   assert.equal(h.events.length, 1);
+});
+
+
+test("assistant replies hide machine identifiers while preserving the user's own input", async (t) => {
+  const h = harness(t);
+  const token = "a".repeat(32);
+  const pending = h.sendMessage(`User supplied ${token}`);
+  await flush();
+  h.calls[0].resolve(response(`任务 task_id ${token}，preview 已完成`, "s"));
+  await pending;
+  const html = await renderToString(vue.createSSRApp({ setup: () => h.bindings, render: vue.compile(componentTemplate) }));
+  assert.match(html, new RegExp(`User supplied ${token}`));
+  assert.doesNotMatch(html, /任务 task_id/);
+  assert.match(html, /任务 记录 相关记录，预览 已完成/);
 });

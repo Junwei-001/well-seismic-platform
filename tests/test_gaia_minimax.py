@@ -76,7 +76,7 @@ def test_unusable_environment_key_fails_closed_without_exposing_value(tmp_path, 
         with pytest.raises(GaiaMiniMaxError) as raised:
             GaiaMiniMaxSettings.from_environment()
     public_error = str(raised.value)
-    assert public_error == "盖亚本地 MiniMax 配置无效，请检查后端配置文件和已启用的模型。"
+    assert public_error == "助手模型配置无效，请检查后端配置和已启用的模型。"
     assert str(config_path) not in public_error
     assert "HUIYAN_TEST_KEY" not in public_error
 
@@ -108,6 +108,92 @@ def model_response(text, model="MiniMax-M2.7"):
         "type": "message", "model": model,
         "content": [{"type": "thinking", "thinking": "internal"}, {"type": "text", "text": text}],
     }).encode())
+
+
+def test_deepseek_inherits_source_protocol_base_and_credential(tmp_path):
+    document = config_document()
+    document["provider"].append({
+        "id": "DeepSeek V4 Flash", "provider_source_id": "deepseek",
+        "model": "deepseek/deepseek-v4-flash",
+        "custom_extra_body": {"reasoning": {"enabled": False}, "stream": True},
+    })
+    document["provider_sources"] += [
+        {"type": "unrelated_source"},
+        {"id": "unrelated", "type": "unrelated_source"},
+        {"id": "unrelated", "type": "unrelated_source"},
+        {
+            "id": "deepseek", "type": "openai_chat_completion",
+            "api_base": "https://proxy.example/v1/", "key": ["unit-source-key"],
+            "custom_headers": {"Authorization": "$HUIYAN_TEST_AUTH"},
+        },
+    ]
+    configuration = tmp_path / "cmd_config.json"
+    configuration.write_text(json.dumps(document), encoding="utf-8")
+    authorization = "UnitAuth source-authorization"
+    environment = {
+        "WELL_SEISMIC_GAIA_CONFIG_PATH": str(configuration),
+        "WELL_SEISMIC_GAIA_PROVIDER_ID": "DeepSeek V4 Flash",
+        "HUIYAN_TEST_AUTH": authorization,
+    }
+    with patch.dict(os.environ, environment, clear=True):
+        settings = GaiaMiniMaxSettings.from_environment()
+    assert settings.protocol == "openai"
+    assert settings.endpoint == "https://proxy.example/v1/chat/completions"
+    assert settings.public_status()["display_label"] == "DeepSeek"
+    assert authorization not in repr(settings)
+    assert authorization not in json.dumps(settings.public_status())
+    response = io.BytesIO(json.dumps({
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "message": {"role": "assistant", "content": "可以查看测井曲线。"},
+            "finish_reason": "stop",
+        }],
+    }).encode())
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.return_value = response
+        answer, _, actual = chat_with_gaia_minimax(
+            settings, question="检查曲线", context={}, conversation_id=None,
+        )
+    request = opener.return_value.open.call_args.args[0]
+    payload = json.loads(request.data)
+    assert request.get_header("Authorization") == authorization
+    assert request.get_header("X-api-key") is None
+    assert payload["reasoning"] == {"enabled": False}
+    assert "stream" not in payload
+    assert answer == "可以查看测井曲线。" and actual == "deepseek-v4-flash"
+
+    document["provider_sources"].append(document["provider_sources"][-1])
+    configuration.write_text(json.dumps(document), encoding="utf-8")
+    with patch.dict(os.environ, environment, clear=True), pytest.raises(GaiaMiniMaxError):
+        GaiaMiniMaxSettings.from_environment()
+
+
+@pytest.mark.parametrize("env, model, endpoint", [
+    ({"DEEPSEEK_API_KEY": "unit-origin-key"}, "deepseek-chat", "https://api.deepseek.com/v1/chat/completions"),
+    ({
+        "WELL_SEISMIC_LLM_API_KEY": "unit-proxy-key",
+        "WELL_SEISMIC_LLM_BASE_URL": "https://proxy.example/v4/chat/completions",
+        "WELL_SEISMIC_LLM_MODEL": "custom-model",
+    }, "custom-model", "https://proxy.example/v4/chat/completions"),
+])
+def test_openai_environment_fallback(env, model, endpoint):
+    with patch.dict(os.environ, env, clear=True):
+        settings = GaiaMiniMaxSettings.from_environment()
+    assert settings.model == model
+    assert settings.endpoint == endpoint
+    assert settings.api_key not in repr(settings)
+
+
+@pytest.mark.parametrize("base_url", [
+    "ftp://example.com/v1", "https://user:pass@example.com/v1",
+    "http://example.com/v1", "https://example.com/v1?secret=key",
+])
+def test_openai_fallback_invalid_endpoint_is_rejected(base_url):
+    with patch.dict(os.environ, {
+        "WELL_SEISMIC_LLM_API_KEY": "unit-key", "WELL_SEISMIC_LLM_BASE_URL": base_url,
+    }, clear=True), pytest.raises(GaiaMiniMaxError) as error:
+        GaiaMiniMaxSettings.from_environment()
+    assert base_url not in str(error.value)
 
 
 def test_conversation_history_and_actual_model_response():

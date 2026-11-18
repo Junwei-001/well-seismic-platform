@@ -1777,7 +1777,7 @@ th { color: #526176; font-weight: 680; }
   bottom: 12px;
   display: grid;
   width: min(480px, calc(100vw - 24px));
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   background: #fff;
   border: 1px solid #c8dce2;
@@ -1830,4 +1830,67 @@ th { color: #526176; font-weight: 680; }
   .knowledge-orbit-halo,
   .knowledge-orbit-node-surface,
   .knowledge-orbit-node-mark i { animation: none; transition: none; }
+}
+
+/* Keep the embedded rail readable at the width of the host Gaia iframe. */
+.app-shell.gaia-embedded .sidebar {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+.app-shell.gaia-embedded .brand,
+.app-shell.gaia-embedded .service-state { flex: 0 0 auto; }
+.app-shell.gaia-embedded .directory-rail { min-height: 0; overflow-y: auto; padding: 8px 2px 24px; }
+.app-shell.gaia-embedded .primary-directory-rail .nav-item {
+  grid-template-columns: 23px minmax(0, 1fr) 11px;
+  grid-template-rows: auto auto;
+  column-gap: 9px;
+  row-gap: 2px;
+  align-items: center;
+}
+.app-shell.gaia-embedded .primary-directory-rail .nav-icon { grid-column: 1; grid-row: 1 / 3; }
+.app-shell.gaia-embedded .primary-directory-rail .nav-label {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  overflow: visible;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: normal;
+}
+.app-shell.gaia-embedded .primary-directory-rail .nav-state {
+  display: block;
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell.gaia-embedded .primary-directory-rail .nav-chevron { grid-column: 3; grid-row: 1 / 3; }
+
+/* Shared embedded scientific viewer; its source keeps the workbench rails intact. */
+.point-visualization-panel {
+  display: flex;
+  min-width: 0;
+  min-height: min(680px, 75dvh);
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+}
+.point-visualization-frame {
+  display: block;
+  width: 100%;
+  height: max(680px, calc(100dvh - 170px));
+  min-height: 680px;
+  border: 0;
+}
+@media (max-width: 700px) {
+  .point-visualization-panel { min-height: 540px; }
+  .point-visualization-frame { height: 70dvh; min-height: 540px; }
 }

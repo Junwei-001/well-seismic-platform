@@ -11376,6 +11376,8 @@ def get_standard_result_visualization(
     """Open the 3-D workbench or a bounded LAS/CSV/JSON result viewer."""
 
     _task, prediction = _standard_prediction_result(task_id)
+    if prediction.get("model_id") == "sixtrack_reconstruction_p21":
+        return gaia_owned_visualization(task_id)
     bundle = _stored_standard_result_bundle(
         prediction,
         execution_task_id=task_id,
@@ -11934,6 +11936,26 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
     }
 
 
+def _point_task_archived(task_id: str) -> bool:
+    """The display badge requires a verified owned DVC version, never a URL hint."""
+    try:
+        with _huiyan_harness.db() as db:
+            rows = db.execute(
+                "SELECT subject,receipt FROM executions WHERE json_extract(receipt,'$.task_id')=?",
+                (task_id,),
+            ).fetchall()
+        for row in rows:
+            receipt = json.loads(row["receipt"])
+            if receipt.get("status") != "completed" or not receipt.get("revision_id"):
+                continue
+            version = _huiyan_harness.dvc.get(row["subject"], receipt["project_id"], receipt["revision_id"])
+            if version.get("status") == "archived":
+                return True
+    except (AttributeError, KeyError, OSError, ValueError, RuntimeError):
+        pass
+    return False
+
+
 def gaia_owned_visualization(task_id: str, *, embed: bool = True, **selectors: Any) -> Response:
     """Serve a sealed P21 point view through the existing owner-scoped Gaia route."""
 
@@ -11964,7 +11986,9 @@ def gaia_owned_visualization(task_id: str, *, embed: bool = True, **selectors: A
     )
     from .reconstruction_point_view import render_query_points
 
-    content = render_query_points(resolved.path)
+    content = render_query_points(resolved.path, archived=_point_task_archived(task_id))
+    ready_message = json.dumps({"type": "huiyan:visualization-ready", "taskId": task_id}).replace("<", "\\u003c")
+    readiness = "<script>document.addEventListener('huiyan:point-viewer-ready',()=>window.parent.postMessage(" + ready_message + ",window.location.origin),{once:true});</script>"
     document = (
         "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -11972,9 +11996,7 @@ def gaia_owned_visualization(task_id: str, *, embed: bool = True, **selectors: A
         "body{font:16px system-ui,sans-serif;color:#173047;background:#f4f8fb;margin:0;padding:24px}"
         "main{max-width:1080px;margin:auto;background:white;padding:24px;border-radius:14px}"
         "button,select{font:inherit;padding:5px 10px;margin:6px}"
-        "</style></head><body><main id='workbench'>"
-        "<h1>P21 三维条件重建 · 原开发折</h1>"
-        "<p>真实 CPU 推理结果；仅展示标准化坐标中的查询点，不代表新工区或全体积预测。</p>"
+        "</style>" + readiness + "</head><body><main id='workbench'>"
         + content + "</main></body></html>"
     )
     return HTMLResponse(document, headers={"Cache-Control": "private, no-store"})
@@ -12018,7 +12040,7 @@ def assistant_chat_authenticated(request: AssistantChatRequest, *, subject: str)
     try:
         settings = GaiaMiniMaxSettings.from_environment()
         if settings is None:
-            raise GaiaMiniMaxError("盖亚本地 MiniMax 配置无效，请检查后端配置文件和已启用的模型。")
+            raise GaiaMiniMaxError("助手模型尚未配置，请检查后端模型设置。")
         binding = _huiyan_harness.assistant_context(subject, request.task_id)
         # Keep the authoritative binding ahead of the bounded task summary.
         context = {"harness": sanitize_llm_payload(binding)}

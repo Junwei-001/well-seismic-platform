@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import closing, contextmanager
@@ -185,7 +186,7 @@ ACTION_SPECS = {
         ),
     ),
     "p21_reconstruction": (
-        "在已登记的 Volve 开发折上执行 P21 三维条件重建；只接受折号 0–4，不代表新工区预测。",
+        "在已登记的 Volve 开发折上运行 P21 三维条件重建。",
         _object(
             {
                 "project_id": P,
@@ -250,6 +251,11 @@ ACTION_SPECS = {
         _object({"project_id": P, "revision_id": R}, ["project_id", "revision_id"]),
     ),
 }
+
+
+FAST_ASSISTANT_OPERATIONS = frozenset({
+    "p21_reconstruction", "data_prepare", "registration", "sample_build",
+})
 
 
 class HuiyanHarness:
@@ -700,7 +706,7 @@ class HuiyanHarness:
                 422, "Action arguments do not match the registered schema"
             )
 
-    def execute(self, subject, operation, arguments, operation_id=None):
+    def execute(self, subject, operation, arguments, operation_id=None, *, defer_settlement=False):
         self.subject(subject)
         self._validate_args(operation, arguments)
         try:
@@ -728,6 +734,10 @@ class HuiyanHarness:
                     raise HTTPException(
                         409, "operation_id already used for different arguments"
                     )
+                if defer_settlement and operation in FAST_ASSISTANT_OPERATIONS:
+                    saved = json.loads(old["receipt"])
+                    if saved.get("task_id") or saved["status"] != "running":
+                        return saved
                 return self.get_run(subject, old["id"])
             receipt = {
                 "schema_version": SCHEMA,
@@ -808,7 +818,35 @@ class HuiyanHarness:
                 )
             self._save(receipt)
             self.active_executions.discard(receipt["execution_id"])
+            if defer_settlement and operation in FAST_ASSISTANT_OPERATIONS:
+                return receipt
             return self.get_run(subject, receipt["execution_id"])
+
+    def wait_for_fast_run(self, subject, receipt, *, deadline):
+        """Poll the owned receipt within the chat wait budget.
+
+        A completed native task uses the existing one-time archive transition.
+        DVC settlement keeps its own execution timeout.
+        """
+        execution_id = receipt.get("execution_id")
+        while (
+            receipt.get("operation") in FAST_ASSISTANT_OPERATIONS
+            and receipt.get("status") == "running"
+            and (receipt.get("result") or {}).get("native_task_submitted") is True
+            and receipt.get("task_id")
+        ):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self.lock.acquire(timeout=remaining):
+                break
+            try:
+                if time.monotonic() >= deadline:
+                    break
+                receipt = self.get_run(subject, execution_id)
+            finally:
+                self.lock.release()
+            if receipt.get("status") == "running":
+                time.sleep(min(0.4, max(0, deadline - time.monotonic())))
+        return receipt
 
     def _save(self, receipt):
         with self.db() as db:

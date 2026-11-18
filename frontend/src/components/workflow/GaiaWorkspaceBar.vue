@@ -7,6 +7,15 @@ const props = defineProps<{ restoreResult?: (value: { jobRef: string; taskId: st
 const emit = defineEmits<{ completed: [value: { jobRef: string; taskId: string }]; loading: [] }>();
 const file = ref<File | null>(null);
 const busy = ref(false);
+const assetBusy = ref(false);
+const projects = ref<Array<{ id: string; name: string }>>([]);
+const selectedProject = ref("");
+const newProjectName = ref("");
+const fileRole = ref<"log" | "seismic">("log");
+const assetStatus = ref("");
+const assetError = ref("");
+let pendingProject: { name: string; id: string } | undefined;
+
 const error = ref("");
 const status = ref("");
 const taskId = ref("");
@@ -83,8 +92,8 @@ async function followRun(id: string, current: number, expected?: AssistantTaskRe
         throw new Error("任务返回结果不匹配，请重新打开任务");
       }
       executionReceipt.value = run.receipt;
-      status.value = `${run.operation} · ${run.receipt.status}`;
-      if (run.receipt.error) error.value = run.receipt.error.message;
+      status.value = statusLabel(run.receipt.status);
+      if (run.receipt.error) error.value = "任务未完成，请核查输入后重试。";
       if (expected && run.receipt.result?.task?.status !== "completed") {
         assistantResultRuns.delete(`${expected.projectId}:${expected.taskId}`);
         throw new Error("原生任务尚未完成或执行失败，请刷新执行状态后再查看结果");
@@ -162,6 +171,111 @@ async function openAssistantResult(reference: AssistantTaskReference): Promise<b
 }
 defineExpose({ openAssistantResult });
 
+// Project actions are owned by the logged-in Gaia account. Job receipts remain
+// the authority; request identifiers are retained across uncertain retries.
+async function projectAction(operation: "project_list" | "project_create", args: Record<string, unknown>, operationId: string) {
+  const response = await fetch("/api/plug/huiyan/actions", {
+    method: "POST", credentials: "same-origin", signal: controller.signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operation_id: operationId, operation, arguments: args }),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.status !== "ok" || !validRef(payload.data?.ref || "")) throw new Error("工区请求失败，请检查登录状态后重试。");
+  const jobRef = payload.data.ref as string;
+  const deadline = Date.now() + 30_000;
+  while (!controller.signal.aborted && Date.now() < deadline) {
+    const job = normalizeJob(await gaia(`/${jobRef}`));
+    if (job.ref !== jobRef || job.operation !== operation) throw new Error("工区返回结果不匹配，请重试。");
+    if (job.kind === "harness" && job.receipt && !["submitted", "working"].includes(job.status)) {
+      if (job.receipt.operation !== operation || job.receipt.status !== "completed") throw new Error("工区操作未完成，请稍后重试。");
+      return job.receipt.result || {};
+    }
+    if (!["submitted", "working"].includes(job.status)) throw new Error("工区操作未完成，请稍后重试。");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  throw new Error("工区操作仍在处理中，请稍后重试。");
+}
+
+async function loadProjects() {
+  if (isLegacyGaiaEmbedded) return;
+  const found: Array<{ id: string; name: string }> = [];
+  let offset = 0;
+  for (let page = 0; page < 100; page++) {
+    const result = await projectAction("project_list", { offset, limit: 32 }, crypto.randomUUID());
+    if (!Array.isArray(result.projects)) throw new Error("无法读取工区列表，请重试。");
+    found.push(...result.projects.filter((item: any) => /^hp_[0-9a-f]{32}$/.test(item?.id || "") && typeof item?.name === "string"));
+    if (result.next_offset == null) break;
+    if (!Number.isInteger(result.next_offset) || result.next_offset <= offset) throw new Error("无法读取工区列表，请重试。");
+    offset = result.next_offset;
+    if (page === 99) throw new Error("工区列表过长，请缩小查询范围。");
+  }
+  if (controller.signal.aborted) return;
+  projects.value = found;
+  if (!found.some((project) => project.id === selectedProject.value)) selectedProject.value = found[0]?.id || "";
+}
+
+async function refreshProjects() {
+  if (assetBusy.value) return;
+  assetBusy.value = true; assetError.value = "";
+  try { await loadProjects(); }
+  catch { if (!controller.signal.aborted) assetError.value = "工区列表暂不可用，请重试。"; }
+  finally { if (!controller.signal.aborted) assetBusy.value = false; }
+}
+
+async function createProject() {
+  const name = newProjectName.value.trim();
+  if (!name || assetBusy.value) return;
+  assetBusy.value = true; assetError.value = ""; assetStatus.value = "正在创建工区…";
+  try {
+    if (pendingProject?.name !== name) pendingProject = { name, id: crypto.randomUUID() };
+    const result = await projectAction("project_create", { name }, pendingProject.id);
+    if (!/^hp_[0-9a-f]{32}$/.test(result.project_id || "")) throw new Error("工区创建结果无效，请重试。");
+    const id = result.project_id as string;
+    pendingProject = undefined;
+    projects.value = [{ id, name }, ...projects.value.filter((project) => project.id !== id)];
+    selectedProject.value = id;
+    newProjectName.value = "";
+    assetStatus.value = "工区已创建";
+    // A refresh failure must not turn a confirmed create into a duplicate on retry.
+    try { await loadProjects(); selectedProject.value = id; }
+    catch { if (!controller.signal.aborted) assetStatus.value = "工区已创建，列表刷新稍后重试"; }
+  } catch { if (!controller.signal.aborted) assetError.value = "工区创建暂未完成，请重试。"; }
+  finally { if (!controller.signal.aborted) assetBusy.value = false; }
+}
+
+function chooseFile(event: Event) {
+  file.value = (event.target as HTMLInputElement).files?.[0] || null;
+  if (file.value && /\.(sgy|segy)$/i.test(file.value.name)) fileRole.value = "seismic";
+  else if (file.value && /\.las$/i.test(file.value.name)) fileRole.value = "log";
+  assetError.value = ""; assetStatus.value = "";
+}
+
+async function uploadAsset() {
+  const selected = file.value;
+  if (!selected || !selectedProject.value || assetBusy.value) return;
+  if (!projects.value.some((project) => project.id === selectedProject.value)) { assetError.value = "请选择当前账号的工区。"; return; }
+  const validExtension = fileRole.value === "log" ? /\.las$/i : /\.(sgy|segy)$/i;
+  if (!validExtension.test(selected.name) || selected.size === 0 || selected.size > 120 * 1024 * 1024) {
+    assetError.value = "文件类型与数据角色不匹配，或文件为空、超过 120 MiB。"; return;
+  }
+  assetBusy.value = true; assetError.value = ""; assetStatus.value = "正在上传数据…";
+  try {
+    const project = selectedProject.value;
+    const role = fileRole.value;
+    const data = new FormData(); data.append("file", selected);
+    const response = await fetch(`/api/plug/huiyan/projects/${encodeURIComponent(project)}/assets/${encodeURIComponent(role)}`, {
+      method: "POST", credentials: "same-origin", signal: controller.signal, body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.status !== "ok" || payload.data?.asset?.project_id !== project || payload.data?.asset?.role !== role) throw new Error("上传未完成，请检查文件和工区权限后重试。");
+    const receipt = payload.data;
+    const archived = receipt.versioning?.status === "archived" && typeof receipt.revision_id === "string" && receipt.versioning.revision_id === receipt.revision_id;
+    assetStatus.value = archived ? "数据已上传并归档" : "数据已上传，归档未完成，可重新尝试归档";
+    if (archived) file.value = null;
+  } catch { if (!controller.signal.aborted) assetError.value = "上传未完成，请检查文件和工区权限后重试。"; }
+  finally { if (!controller.signal.aborted) assetBusy.value = false; }
+}
+
 async function start() {
   if (!file.value || busy.value) return;
   if (!/\.las$/i.test(file.value.name) || file.value.size === 0 || file.value.size > 20 * 1024 * 1024) {
@@ -195,6 +309,7 @@ onMounted(async () => {
   try {
     await loadHistory();
     if (controller.signal.aborted) return;
+    if (!isLegacyGaiaEmbedded) loadProjects().catch(() => { if (!controller.signal.aborted) assetError.value = "工区列表暂不可用，请重试。"; });
     window.parent.postMessage({ type: "huiyan:ready" }, window.location.origin);
     const requested = new URLSearchParams(window.location.search).get(isLegacyGaiaEmbedded ? "run_id" : "job_ref");
     if (requested) await openRun(requested);
@@ -204,28 +319,50 @@ onBeforeUnmount(() => { generation++; controller.abort(); });
 </script>
 
 <template>
-  <section class="gaia-workspace-bar" aria-label="盖亚慧眼工作区">
-    <div class="gaia-workspace-controls">
-      <strong>盖亚 · 慧眼工作区</strong>
-      <label>上传 LAS <input type="file" accept=".las" :disabled="busy" @change="file = ($event.target as HTMLInputElement).files?.[0] || null" /></label>
-      <button :disabled="busy || !file" @click="start">{{ busy ? "正在处理…" : "检查并查看结果" }}</button>
-      <label>我的任务 <select v-model="selectedRun" :disabled="busy" @change="openRun(selectedRun)"><option value="" disabled>选择历史任务</option><option v-for="item in history" :key="item.ref" :value="item.ref">{{ dateLabel(item.created_at) }} · {{ statusLabel(item.status) }}</option></select></label>
+  <section class="gaia-workspace-bar" aria-label="附件与任务">
+    <div v-if="!isLegacyGaiaEmbedded" class="asset-upload">
+      <strong>添加数据</strong>
+      <label>工区
+        <select v-model="selectedProject" :disabled="assetBusy">
+          <option value="" disabled>选择工区</option>
+          <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option>
+        </select>
+      </label>
+      <button type="button" class="secondary refresh-projects" :disabled="assetBusy" @click="refreshProjects">刷新工区</button>
+      <div class="create-project"><input v-model="newProjectName" :disabled="assetBusy" maxlength="120" placeholder="新工区名称" aria-label="新工区名称" @keydown.enter.prevent="createProject" /><button type="button" class="secondary" :disabled="assetBusy || !newProjectName.trim()" @click="createProject">创建</button></div>
+      <label>数据角色
+        <select v-model="fileRole" :disabled="assetBusy"><option value="log">测井曲线 · LAS</option><option value="seismic">地震数据 · SEG-Y</option></select>
+      </label>
+      <label class="file-picker"><span>选择文件</span><input type="file" accept=".las,.sgy,.segy" :disabled="assetBusy || busy" @change="chooseFile" /></label>
+      <small v-if="file" class="filename">{{ file.name }}</small>
+      <button type="button" :disabled="assetBusy || busy || !file || !selectedProject" @click="uploadAsset">{{ assetBusy ? '处理中…' : '上传到工区' }}</button>
+      <p v-if="assetError" class="gaia-error" role="alert">{{ assetError }}</p><p v-else-if="assetStatus" role="status">{{ assetStatus }}</p>
     </div>
-    <details v-if="executionReceipt"><summary>操作回传结果</summary><pre class="execution-result">{{ JSON.stringify(executionReceipt.result, null, 2) }}</pre></details>
-    <p v-if="error" class="gaia-error" role="alert">{{ error }}</p>
-    <p v-else role="status">{{ status || "在此上传数据、与慧眼 AI 对话，或打开当前账号的任务结果。" }}</p>
+    <div v-else class="asset-upload">
+      <strong>添加测井数据</strong><label class="file-picker"><span>选择 LAS 文件</span><input type="file" accept=".las" :disabled="busy" @change="chooseFile" /></label><small v-if="file" class="filename">{{ file.name }}</small>
+    </div>
+    <button v-if="file && fileRole === 'log'" type="button" class="secondary" :disabled="busy || assetBusy" @click="start">{{ busy ? '正在处理…' : '检查并查看 LAS 结果' }}</button>
+    <label v-if="history.length" class="history-select">我的任务
+      <select v-model="selectedRun" :disabled="busy" @change="openRun(selectedRun)"><option value="" disabled>选择历史任务</option><option v-for="item in history" :key="item.ref" :value="item.ref">{{ dateLabel(item.created_at) }} · {{ statusLabel(item.status) }}</option></select>
+    </label>
+    <p v-if="error" class="gaia-error" role="alert">{{ error }}</p><p v-else-if="status" role="status">{{ status }}</p>
   </section>
 </template>
 
 <style scoped>
-.execution-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
-.gaia-workspace-bar { position: sticky; top: 0; z-index: 40; padding: 10px 18px; border-bottom: 1px solid #bdd4e0; background: #eff8fc; color: #173f59; font-size: 13px; }
-.gaia-workspace-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-label { display: flex; align-items: center; gap: 6px; }
-input { max-width: 220px; }
-select { max-width: 250px; }
-button { background: #246a91; color: white; border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
-button:disabled { opacity: .5; cursor: default; }
-p { margin: 8px 0 0; overflow-wrap: anywhere; }
-.gaia-error { color: #b42318; }
+.gaia-workspace-bar,.asset-upload { display:grid; gap:9px; min-width:0; color:#344b5b; font-size:13px; }
+.asset-upload strong { color:#17394e; font-size:14px; }
+label { display:grid; gap:4px; font-weight:600; }
+select,input:not([type=file]) { box-sizing:border-box; width:100%; min-width:0; padding:8px; color:inherit; font:inherit; background:#fff; border:1px solid #cedde2; border-radius:8px; }
+.create-project { display:flex; gap:6px; }
+.create-project input { flex:1; }
+button,.file-picker span { display:inline-flex; align-items:center; justify-content:center; padding:8px 11px; color:#fff; font:inherit; font-weight:650; background:#176e78; border:1px solid #176e78; border-radius:8px; cursor:pointer; }
+button.secondary,.file-picker span { color:#176e78; background:#f2faf8; border-color:#cde4e1; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+.file-picker { position:relative; display:inline-flex; width:fit-content; }
+.file-picker input { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.file-picker:focus-within span, button:focus-visible,select:focus-visible,input:focus-visible { outline:2px solid #297f98; outline-offset:2px; }
+.filename { overflow-wrap:anywhere; color:#617789; }
+p { margin:0; overflow-wrap:anywhere; }.gaia-error { color:#b42318; }
+.history-select { padding-top:6px; border-top:1px solid #e6ecef; }
 </style>

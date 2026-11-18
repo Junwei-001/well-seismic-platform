@@ -88,6 +88,7 @@ def owned_visualization_html(
         and re.fullmatch(r"[0-9a-f]{32}", task_id)
         and re.search(r"""\bid=["']workbench["']""", document)
         and "</body>" in document
+        and "data-point-viewer" not in document
     ):
         message = json.dumps({"type": "huiyan:visualization-ready", "taskId": task_id})
         script = (

@@ -216,7 +216,7 @@ let activeSnapshotReconciliationPromise: Promise<boolean> | null = null;
 const groups = ref<PathGroup[]>(createDefaultPathGroups());
 
 const activeView = ref<ViewKey>("overview");
-const assistantDrawerOpen = ref(false);
+const assistantDrawerOpen = ref(isGaiaEmbedded);
 watch(activeView, (view) => {
   if (view === "assistant") assistantDrawerOpen.value = false;
 });
@@ -2427,6 +2427,11 @@ function canonicalView(view: ViewKey): ViewKey {
 }
 
 function selectView(view: ViewKey) {
+  if (view === "visualization" && pointVisualizationTaskId.value) {
+    activeView.value = "visualization";
+    window.location.hash = "visualization";
+    return;
+  }
   if (view === "samples") preparationScreen.value = "fusion";
   if (view === "visualization") predictionCanvasMode.value = "base";
   const nextView = canonicalView(view);
@@ -7283,6 +7288,10 @@ async function enableTransformDraft(issue: PreparationIssue, draft: Transformati
 }
 
 function syncViewFromHash() {
+  if (window.location.hash === "#visualization" && pointVisualizationTaskId.value) {
+    activeView.value = "visualization";
+    return;
+  }
   const hash = window.location.hash.replace("#", "");
   if (hash === "visualization-logs") {
     visualizationMode.value = "logs";
@@ -7675,14 +7684,29 @@ async function restoreLatestDurableWorkflow(options: { preferLatestSnapshot?: bo
 }
 
 const gaiaWorkspaceBar = ref<InstanceType<typeof GaiaWorkspaceBar> | null>(null);
+const pointVisualizationTaskId = ref("");
+const pointVisualizationFrame = ref<HTMLIFrameElement | null>(null);
+const pointVisualizationReady = ref(false);
+const pointVisualizationUrl = computed(() => pointVisualizationTaskId.value
+  ? nativeApiUrl(`/api/v1/tasks/${encodeURIComponent(pointVisualizationTaskId.value)}/${isGaiaEmbedded ? "visualization" : "standard-results/visualization"}`)
+  : "");
+function onPointVisualizationReady(event: MessageEvent) {
+  if (event.origin !== window.location.origin || event.source !== pointVisualizationFrame.value?.contentWindow
+    || event.data?.type !== "huiyan:visualization-ready" || event.data.taskId !== pointVisualizationTaskId.value) return;
+  pointVisualizationReady.value = true;
+  if (isGaiaEmbedded) window.parent.postMessage({ type: "huiyan:visualization-ready", taskId: pointVisualizationTaskId.value }, window.location.origin);
+}
 const assistantResultOpening = ref(false);
 const assistantResultError = ref("");
 async function openAssistantTaskResult(reference: AssistantTaskReference) {
-  if (!isGaiaEmbedded || isLegacyGaiaEmbedded || assistantResultOpening.value || !gaiaWorkspaceBar.value) return;
+  if (isLegacyGaiaEmbedded || assistantResultOpening.value || (isGaiaEmbedded && !gaiaWorkspaceBar.value)) return;
   assistantResultOpening.value = true;
   assistantResultError.value = "";
   try {
-    if (await gaiaWorkspaceBar.value.openAssistantResult(reference)) assistantDrawerOpen.value = false;
+    const opened = isGaiaEmbedded
+      ? await gaiaWorkspaceBar.value!.openAssistantResult(reference)
+      : await restoreGaiaResult({ taskId: reference.taskId });
+    if (opened) assistantDrawerOpen.value = true;
     else assistantResultError.value = "无法打开任务结果，请确认任务已完成且属于当前账号，或刷新后重试。";
   } catch {
     assistantResultError.value = "暂时无法打开任务结果，请稍后重试。";
@@ -7692,6 +7716,8 @@ async function openAssistantTaskResult(reference: AssistantTaskReference) {
 let gaiaSelectionEpoch = 0;
 function clearGaiaResult() {
   gaiaSelectionEpoch++;
+  pointVisualizationTaskId.value = "";
+  pointVisualizationReady.value = false;
   preparationResult.value = null;
   registrationResult.value = null;
   registrationTaskId.value = "";
@@ -7715,7 +7741,25 @@ async function restoreGaiaResult(value: { taskId: string }) {
   const epoch = gaiaSelectionEpoch;
   const current = () => epoch === gaiaSelectionEpoch && !componentUnmounted;
   try {
-    const chain = await loadGaiaTaskChain(value.taskId, getTask, current);
+    const selected = await getTask(value.taskId);
+    if (!current()) return false;
+    if (selected.task_id !== value.taskId || selected.status !== "completed") throw new Error("所选任务尚未完成或无法访问");
+    const prediction = (selected.result as PredictionTaskResult | null)?.prediction;
+    if (prediction?.model_id === "sixtrack_reconstruction_p21") {
+      pointVisualizationTaskId.value = selected.task_id;
+      pointVisualizationReady.value = false;
+      taskId.value = selected.task_id;
+      activeView.value = "visualization";
+      sidebarDirectoryLevel.value = "primary";
+      assistantDrawerOpen.value = true;
+      const url = new URL(window.location.href);
+      url.searchParams.set("task_id", selected.task_id);
+      url.hash = "visualization";
+      window.history.replaceState(null, "", url);
+      return true;
+    }
+    pointVisualizationTaskId.value = "";
+    const chain = await loadGaiaTaskChain(value.taskId, (id) => id === selected.task_id ? Promise.resolve(selected) : getTask(id), current);
     if (!chain || !current()) return false;
     // Owned tasks are already durable; embedding only restores the local view.
     restoreCompletedDataPreparationTask(chain.preparation, { snapshotId: chain.snapshotId, persistPathConfig: false, persistActiveSnapshot: false, rememberTask: false, offerRuntimeReview: false });
@@ -7731,6 +7775,7 @@ async function restoreGaiaResult(value: { taskId: string }) {
 }
 
 onMounted(async () => {
+  window.addEventListener("message", onPointVisualizationReady);
   if (isGaiaEmbedded) {
     componentUnmounted = false;
     syncViewFromHash();
@@ -8058,12 +8103,12 @@ onBeforeUnmount(() => {
   stopPreparationClock();
   stopFusionClock();
   window.removeEventListener("hashchange", syncViewFromHash);
+  window.removeEventListener("message", onPointVisualizationReady);
   document.removeEventListener("fullscreenchange", syncVisualizationFullscreen);
 });
 </script>
 
 <template>
-  <GaiaWorkspaceBar v-if="isGaiaEmbedded" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
   <div :class="['app-shell', { 'landing-shell': activeView === 'overview', 'gaia-embedded': isGaiaEmbedded }]">
     <aside v-if="activeView !== 'overview'" class="sidebar">
       <button type="button" class="brand brand-button" title="返回首屏" @click="selectView('overview')">
@@ -8355,7 +8400,7 @@ onBeforeUnmount(() => {
 
         <section v-if="isGaiaEmbedded && preparationScreen === 'input'" class="section-panel">
           <h2>上传测井数据</h2>
-          <p>使用页面上方的“上传 LAS”选择文件，再点击“检查并查看结果”。完成后可在本工作台查看数据准备结果和测井曲线。</p>
+          <p>点击慧眼助手输入框旁的“＋”添加 LAS 或 SEG-Y，选择工区后即可继续处理。</p>
           <p>可从盖亚任务打开数据准备、井震标定和融合结果，并通过慧眼 AI 继续操作；模型预测需具备对应数据、权重及运行环境。</p>
         </section>
         <section v-else-if="preparationScreen === 'input'" class="section-panel input-stage-panel">
@@ -8931,7 +8976,10 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else-if="activeView === 'visualization'">
-        <section v-if="!seismicInventory.length && !seismicPreviewCount && !wellLogPreviews.length" class="empty-workflow">
+        <section v-if="pointVisualizationTaskId" class="point-visualization-panel" aria-label="P21 三维条件属性重建" :aria-busy="!pointVisualizationReady">
+          <iframe ref="pointVisualizationFrame" :key="pointVisualizationTaskId" :src="pointVisualizationUrl" title="P21 三维条件属性重建" class="point-visualization-frame"></iframe>
+        </section>
+        <section v-else-if="!seismicInventory.length && !seismicPreviewCount && !wellLogPreviews.length" class="empty-workflow">
           <strong>当前任务没有可用于预览的数据</strong>
           <p>请先在“数据准备”中登记 SEG-Y 或 LAS；系统不会显示历史示例数据。</p>
           <button type="button" class="primary-button" @click="selectView('preparation')">进入数据准备</button>
@@ -10089,13 +10137,18 @@ onBeforeUnmount(() => {
         :task-id="taskId"
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
-        :llm-model="capabilities?.assistant?.model ?? capabilities?.llm.model"
-        :can-open-task-results="isGaiaEmbedded && !isLegacyGaiaEmbedded"
+        :llm-model="capabilities?.assistant?.display_label ?? capabilities?.assistant?.model ?? capabilities?.llm.model"
+        :can-open-task-results="!isLegacyGaiaEmbedded"
         :result-opening="assistantResultOpening"
         :result-error="assistantResultError"
         @open-task-result="openAssistantTaskResult"
         @navigate="handleAssistantNavigation"
-      />
+        @close="assistantDrawerOpen = false"
+      >
+        <template #attachments>
+          <GaiaWorkspaceBar v-if="isGaiaEmbedded && activeView === 'assistant'" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+        </template>
+      </FloatingAssistant>
     </main>
 
     <button
@@ -10116,22 +10169,24 @@ onBeforeUnmount(() => {
       aria-label="慧眼AI 对话侧栏"
       @keydown.esc="assistantDrawerOpen = false"
     >
-      <div class="assistant-drawer-toolbar">
-        <strong>页面内对话</strong>
-        <button type="button" aria-label="关闭慧眼AI侧栏" @click="assistantDrawerOpen = false">关闭</button>
-      </div>
       <FloatingAssistant
+        closable
         :visible="assistantDrawerOpen"
         :task-id="taskId"
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
-        :llm-model="capabilities?.assistant?.model ?? capabilities?.llm.model"
-        :can-open-task-results="isGaiaEmbedded && !isLegacyGaiaEmbedded"
+        :llm-model="capabilities?.assistant?.display_label ?? capabilities?.assistant?.model ?? capabilities?.llm.model"
+        :can-open-task-results="!isLegacyGaiaEmbedded"
         :result-opening="assistantResultOpening"
         :result-error="assistantResultError"
         @open-task-result="openAssistantTaskResult"
         @navigate="handleAssistantNavigation"
-      />
+        @close="assistantDrawerOpen = false"
+      >
+        <template #attachments>
+          <GaiaWorkspaceBar v-if="isGaiaEmbedded" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+        </template>
+      </FloatingAssistant>
     </aside>
 
     <dialog

@@ -16,7 +16,7 @@ export function validAssistantTaskReference(value: unknown): value is AssistantT
 
 export function assistantTaskResultReference(receipt: AssistantExecution): AssistantTaskReference | null {
   if (receipt.status !== "completed"
-    || !["data_prepare", "registration", "sample_build", "task_status", "visualization"].includes(receipt.operation)) return null;
+    || !["data_prepare", "registration", "sample_build", "task_status", "visualization", "p21_reconstruction"].includes(receipt.operation)) return null;
   const reference = { projectId: receipt.project_id, taskId: receipt.task_id };
   if (!validAssistantTaskReference(reference)) return null;
   const result = receipt.result;

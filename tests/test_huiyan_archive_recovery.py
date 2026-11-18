@@ -10,6 +10,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -353,6 +354,46 @@ def test_manual_archive_collects_same_native_outputs_and_reuses_version(harness)
         f["path"] for f in manual["result"]["files"]
     }
     assert repeated["revision_id"] == manual["revision_id"]
+
+
+def test_assistant_wait_stops_at_deadline_and_archives_a_later_completion_once(harness, monkeypatch):
+    import well_seismic.huiyan_harness as module
+
+    store = harness.dvc = RecordingStore()
+    pid, aid = project_asset(harness)
+    operation_id = str(uuid.uuid4())
+    arguments = {"project_id": pid, "asset_ids": [aid]}
+    run = harness.execute(OWNER, "data_prepare", arguments, operation_id, defer_settlement=True)
+    assert run["status"] == "running"
+    assert run["result"]["native_task_submitted"]
+    clock = SimpleNamespace(now=0.0)
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock.now += seconds
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep))
+    before = store.attempts
+    pending = harness.wait_for_fast_run(OWNER, run, deadline=1.0)
+    assert sleeps == pytest.approx([0.4, 0.4, 0.2])
+    assert pending["status"] == "running"
+    assert pending["result"]["native_status"] == "queued"
+    assert store.attempts == before
+
+    harness.test_tasks[run["task_id"]]["status"] = "completed"
+    assert harness.wait_for_fast_run(OWNER, pending, deadline=1.0) == pending
+    assert store.attempts == before
+    with pytest.raises(HTTPException) as denied:
+        harness.wait_for_fast_run(OTHER, pending, deadline=2.0)
+    assert denied.value.status_code == 404
+
+    settled = harness.wait_for_fast_run(OWNER, pending, deadline=2.0)
+    assert settled["status"] == "completed" and settled["revision_id"]
+    assert store.attempts == before + 1
+    repeated = harness.execute(OWNER, "data_prepare", arguments, operation_id, defer_settlement=True)
+    assert settled == repeated
+    assert store.attempts == before + 1
 
 
 @pytest.mark.parametrize("mode", ["automatic", "manual"])
