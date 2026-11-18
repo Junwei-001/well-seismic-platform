@@ -181,24 +181,30 @@ def test_nine_ordered_query_strips_render_continuous_surfaces_and_sections(tmp_p
     np.savez(path, query_coordinate=xyz, prediction=values)
     html = render_query_points(path)
     strata = json.loads(re.search(r'const strata=(.*?);', html).group(1))
-    assert len(strata['x']) == len(strata['y']) == 24
-    assert np.asarray(strata['z']).shape == (9, 24, 24)
-    assert np.isfinite(np.asarray(strata['z'])).all()
+    assert len(strata['x']) == len(strata['y']) == 20
+    assert np.asarray(strata['z']).shape == (9, 20, 20)
+    z = np.asarray(strata['z'])
+    assert np.isfinite(z).all()
+    assert np.all(np.diff(z, axis=0) > 0)
+    assert np.min(z[-1] - z[0]) > .4 * np.ptp(xyz[:, 2])
+    assert z.min() >= xyz[:, 2].min() - 1e-5
+    assert z.max() <= xyz[:, 2].max() + 1e-5
+    assert strata['geometry_kind'] == 'illustrative_corner_grid'
     assert values.min() - 1e-5 <= np.min(strata['v']) <= np.max(strata['v']) <= values.max() + 1e-5
     assert '查询点插值展示' in html and '并非新增地层识别结果' in html
     script = html.split('<script>', 1)[1].split('</script>', 1)[0]
     runner = r'''
 const vm=require('node:vm'),script=require('node:fs').readFileSync(0,'utf8');
-let fills=0,arcs=0,ready=0;const handlers={},noop=()=>{};
-const ctx={clearRect:()=>{fills=0;arcs=0;},beginPath:noop,closePath:noop,
- moveTo:(x,y)=>{if(!Number.isFinite(x+y))throw Error('nonfinite');},lineTo:noop,
+let fills=0,arcs=0,ready=0,coordinates=[];const handlers={},noop=()=>{};
+const ctx={clearRect:()=>{fills=0;arcs=0;coordinates=[];},beginPath:noop,closePath:noop,
+ moveTo:(x,y)=>{if(!Number.isFinite(x+y))throw Error('nonfinite');coordinates.push([x,y]);},lineTo:noop,
  fill:()=>fills++,arc:()=>arcs++,stroke:noop,setTransform:noop,
  measureText:s=>({width:String(s).length*7}),fillText:noop,strokeText:noop};
 const scope={dataset:{},addEventListener:noop};
 const buttons=['3d','xy','xz','yz'].map(view=>({dataset:{pointView:view},setAttribute:noop,
  addEventListener:(e,f)=>handlers[view]=f}));
 const root={querySelectorAll:()=>buttons,querySelector:()=>scope};
-const canvas={getContext:()=>ctx,closest:()=>root,addEventListener:noop,
+const canvas={getContext:()=>ctx,closest:()=>root,addEventListener:(n,f)=>handlers[n]=f,setPointerCapture:noop,
  getBoundingClientRect:()=>({width:800,height:500})};
 const elements={'point-canvas':canvas};
 const document={getElementById:id=>elements[id]||(elements[id]={addEventListener:noop}),
@@ -206,10 +212,18 @@ const document={getElementById:id=>elements[id]||(elements[id]={addEventListener
 const window={addEventListener:noop,matchMedia:()=>({addEventListener:noop})};
 vm.runInNewContext(script,{document,window,CustomEvent:class{constructor(type){this.type=type;}},
  getComputedStyle:()=>({getPropertyValue:()=> '#123456'})});
-if(fills!==1794||arcs!==0||ready!==1)throw Error('missing continuous3D surfaces '+fills);
-for(const [view,expected] of [['xy',529],['xz',184],['yz',184],['3d',1794]]){
- handlers[view]();if(fills!==expected||arcs!==0||ready!==1)throw Error('wrongsection '+view+':'+fills);
+if(fills<1000||fills>1802||arcs!==2||ready!==1)throw Error('missing cutaway block '+fills);
+const blockFills=fills;
+for(const [view,expected] of [['xy',361],['xz',152],['yz',152],['3d',blockFills]]){
+ handlers[view]();if(fills!==expected||arcs!==(view==='3d'?2:0)||ready!==1)throw Error('wrongsection '+view+':'+fills);
 }
+const baseline=JSON.stringify(coordinates);
+handlers.wheel({deltaY:-200,preventDefault:noop});
+if(JSON.stringify(coordinates)===baseline)throw Error('wheel did not zoom');
+handlers.dblclick();if(JSON.stringify(coordinates)!==baseline)throw Error('reset did not restore');
+handlers.pointerdown({clientX:0,clientY:0,pointerId:1});handlers.pointermove({clientX:70,clientY:30});handlers.pointerup();
+if(JSON.stringify(coordinates)===baseline)throw Error('drag did not rotate');
+handlers.dblclick();if(JSON.stringify(coordinates)!==baseline)throw Error('doubleclick did not reset');
 '''
     result = subprocess.run(['node', '-e', runner], input=script, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -220,3 +234,18 @@ def test_large_unlayered_query_cloud_keeps_point_fallback(tmp_path):
     xyz = np.column_stack((np.linspace(0, 1, 80), np.linspace(0, 1, 80), np.zeros(80)))
     np.savez(path, query_coordinate=xyz, prediction=np.linspace(.2, .3, 80))
     assert 'const strata=null;' in render_query_points(path)
+
+
+def test_offline_grid_export_is_self_contained_and_discloses_schematic_geometry(tmp_path):
+    from well_seismic.reconstruction_point_view import export_query_grid_html
+
+    path = tmp_path / 'offline.npz'
+    np.savez(path, query_coordinate=np.array([[0., 0., 0.], [1., 1., 1.]]), prediction=np.array([.2, .3]))
+    html = export_query_grid_html(path, archived=True)
+    assert html.startswith('<!doctype html>') and html.endswith('</body></html>')
+    assert '<script>' in html and 'const data=' in html
+    assert not re.search(r'<(?:script|link)[^>]*(?:src|href)=', html)
+    assert '不是新增预测或实测井' in html
+    assert str(path) not in html
+    assert 'DVC 已归档' in html
+    assert '.p21-eyebrow,.p21-subtitle,.p21-kpis,.p21-scope,.p21-caption,.p21-detail{display:none!important}' in html

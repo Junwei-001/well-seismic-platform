@@ -200,26 +200,26 @@ watch(
 </template>
 
 <style scoped>
-.strata-assistant-workspace { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; color:var(--ink, #152234); background:var(--panel, #fff); }
-.strata-assistant-header { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line-soft, #e9edf2); }
-.strata-assistant-avatar { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; color:#167778; background:#eaf6f4; border-radius:12px; }
+.strata-assistant-workspace { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; color:var(--ink, #0f172a); background:var(--panel, #fff); }
+.strata-assistant-header { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line-soft, #e2e8f0); }
+.strata-assistant-avatar { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; color:#1668dc; background:#eff6ff; border-radius:12px; }
 .strata-assistant-avatar svg { width:29px; height:29px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
 .strata-assistant-identity { min-width:0; flex:1; }
 .strata-assistant-identity h2 { margin:0; font-size:16px; line-height:1.3; }
-.strata-assistant-identity > span { white-space:nowrap; color:var(--muted, #6f7e91); font-size:12px; }
+.strata-assistant-identity > span { white-space:nowrap; color:var(--muted, #64748b); font-size:12px; }
 .assistant-new-chat { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; color:#627785; background:transparent; border:0; border-radius:8px; cursor:pointer; }
 .assistant-new-chat:hover { background:#edf3f5; }
 .assistant-new-chat svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .assistant-close { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; color:#627785; font-size:22px; background:transparent; border:0; border-radius:8px; cursor:pointer; }
 .assistant-close:hover { background:#edf3f5; }
-.assistant-model { max-width:115px; overflow:hidden; padding:3px 8px; color:#327277; font-size:12px; text-overflow:ellipsis; white-space:nowrap; background:#eef7f6; border-radius:999px; }
+.assistant-model { max-width:115px; overflow:hidden; padding:3px 8px; color:#1d4ed8; font-size:12px; text-overflow:ellipsis; white-space:nowrap; background:#eef4ff; border-radius:999px; }
 .strata-assistant-messages { display:flex; min-height:0; flex:1; gap:18px; flex-direction:column; overflow-y:auto; padding:20px 16px; scrollbar-width:thin; }
 .strata-assistant-messages > article { display:flex; width:100%; max-width:100%; gap:9px; align-items:flex-start; }
 .strata-assistant-messages > article.user { justify-content:flex-end; }
-.message-avatar { display:grid; width:28px; height:28px; flex:0 0 28px; place-items:center; color:#247b7e; background:#e9f5f2; border-radius:9px; }
+.message-avatar { display:grid; width:28px; height:28px; flex:0 0 28px; place-items:center; color:#1668dc; background:#eff6ff; border-radius:9px; }
 .message-bubble { min-width:0; max-width:calc(100% - 37px); }
 .message-bubble > p { margin:0; color:inherit; font-size:14px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
-.user .message-bubble { padding:9px 12px; background:#eef4f9; border-radius:14px 14px 4px 14px; }
+.user .message-bubble { padding:9px 12px; background:#eff6ff; border-radius:14px 14px 4px 14px; }
 .assistant-warning,.assistant-result-error { margin-top:8px !important; color:#a04d15 !important; font-size:12px !important; }
 .assistant-steps { margin-top:10px; color:#607488; font-size:12px; }
 .assistant-steps summary { width:fit-content; padding:4px 8px; background:#f1f5f7; border-radius:999px; cursor:pointer; list-style:none; }
@@ -227,26 +227,26 @@ watch(
 .assistant-steps summary span { margin-left:5px; color:#8794a0; }
 .assistant-steps ol { display:grid; gap:5px; margin:8px 0 0 7px; padding:0; list-style:none; }
 .assistant-steps li { display:flex; gap:8px; align-items:center; line-height:1.5; }
-.assistant-steps li span { color:#208677; }
+.assistant-steps li span { color:#1668dc; }
 .assistant-steps li.failed span,.assistant-steps li.blocked span { color:#b95542; }
-.assistant-result-link,.strata-assistant-message-actions button { margin-top:10px; padding:7px 10px; color:#166d76; font-size:12px; font-weight:650; background:#eef8f6; border:1px solid #cde6e1; border-radius:9px; cursor:pointer; }
+.assistant-result-link,.strata-assistant-message-actions button { margin-top:10px; padding:7px 10px; color:#1d4ed8; font-size:12px; font-weight:650; background:#eff6ff; border:1px solid #bfdbfe; border-radius:9px; cursor:pointer; }
 .strata-assistant-message-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .strata-assistant-prompts { display:flex; gap:7px; overflow-x:auto; padding:8px 12px; }
-.strata-assistant-prompts button { flex:0 0 auto; padding:6px 9px; color:#456779; font-size:12px; background:#f3f7f8; border:1px solid #dce9e9; border-radius:999px; cursor:pointer; }
+.strata-assistant-prompts button { flex:0 0 auto; padding:6px 9px; color:#64748b; font-size:12px; background:#f3f7f8; border:1px solid #e2e8f0; border-radius:999px; cursor:pointer; }
 .composer-area { position:relative; flex:0 0 auto; padding:10px 12px 14px; background:var(--panel, #fff); }
 .attachment-panel { position:absolute; z-index:5; right:12px; bottom:calc(100% + 3px); left:12px; max-height:min(60vh, 420px); overflow-y:auto; padding:12px; background:#fff; border:1px solid #dbe7eb; border-radius:14px; box-shadow:0 12px 35px rgb(19 48 65 / 15%); }
 .attachment-panel > p { margin:0; color:#647889; font-size:13px; }
-.strata-assistant-composer { display:flex; gap:8px; align-items:flex-end; padding:9px; background:#f8fafb; border:1px solid #dce5e9; border-radius:16px; }
-.strata-assistant-composer:focus-within { border-color:#5ca5ad; box-shadow:0 0 0 3px rgb(56 139 145 / 11%); }
-.strata-assistant-composer textarea { width:100%; min-width:0; min-height:42px; max-height:120px; flex:1; padding:5px 0; resize:vertical; color:var(--ink, #152234); font:inherit; font-size:14px; line-height:1.45; background:transparent; border:0; outline:0; }
+.strata-assistant-composer { display:flex; gap:8px; align-items:flex-end; padding:9px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; }
+.strata-assistant-composer:focus-within { border-color:#1668dc; box-shadow:0 0 0 3px rgb(22 104 220 / 11%); }
+.strata-assistant-composer textarea { width:100%; min-width:0; min-height:42px; max-height:120px; flex:1; padding:5px 0; resize:vertical; color:var(--ink, #0f172a); font:inherit; font-size:14px; line-height:1.45; background:transparent; border:0; outline:0; }
 .strata-assistant-composer textarea::placeholder { color:#91a0ac; }
 .attachment-toggle,.send-button { display:grid; width:34px; height:34px; flex:0 0 34px; place-items:center; padding:0; border:0; border-radius:50%; cursor:pointer; }
-.attachment-toggle { color:#426278; font-size:25px; background:transparent; }
+.attachment-toggle { color:#64748b; font-size:25px; background:transparent; }
 .attachment-toggle:hover { background:#e8f0f2; }
-.send-button { color:#fff; font-size:20px; font-weight:700; background:#176e78; }
+.send-button { color:#fff; font-size:20px; font-weight:700; background:#1668dc; }
 .send-button:disabled { cursor:not-allowed; opacity:.4; }
-button:focus-visible,summary:focus-visible,textarea:focus-visible { outline:2px solid #297f98; outline-offset:2px; }
-.thinking-dot { display:inline-block; width:5px; height:5px; margin-right:3px; background:#478b8d; border-radius:50%; animation:thinking 1s infinite ease-in-out; }
+button:focus-visible,summary:focus-visible,textarea:focus-visible { outline:2px solid #1668dc; outline-offset:2px; }
+.thinking-dot { display:inline-block; width:5px; height:5px; margin-right:3px; background:#1668dc; border-radius:50%; animation:thinking 1s infinite ease-in-out; }
 .thinking-dot:nth-child(2) { animation-delay:.14s; }.thinking-dot:nth-child(3) { animation-delay:.28s; }
 @keyframes thinking { 0%,70%,100% { opacity:.35; transform:translateY(0); } 35% { opacity:1; transform:translateY(-2px); } }
 @media (prefers-reduced-motion:reduce) { .thinking-dot { animation:none; } }

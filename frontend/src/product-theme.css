@@ -1,15 +1,15 @@
 :root {
   --sidebar-width: 260px;
   --topbar-height: 68px;
-  --ink: #152234;
+  --ink: #0f172a;
   --text: #344257;
-  --muted: #6f7e91;
-  --line: #dfe5ec;
-  --line-soft: #e9edf2;
-  --canvas: #f3f6f9;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --line-soft: #e2e8f0;
+  --canvas: #f8fafc;
   --panel: #ffffff;
-  --primary: #1677e8;
-  --primary-hover: #0f68d3;
+  --primary: #1668dc;
+  --primary-hover: #1557b8;
   --primary-soft: #edf5ff;
   --success: #159b72;
   --warning: #c88420;
@@ -2008,3 +2008,12 @@ th { color: #526176; font-weight: 680; }
 .clean-data-entry > h2 { font-size: 25px; margin-bottom: 12px; }
 .clean-data-entry > p { color: var(--muted); line-height: 1.8; max-width: 36em; }
 .clean-data-entry > button { margin-top: 20px; margin-right: 12px; }
+
+/* One blue/slate workbench, without diagnostic chrome. */
+.brand span { display: none !important; }
+.app-shell:not(.landing-shell) .topbar { display: none !important; }
+.app-shell:not(.landing-shell) .main-content { min-height: 100dvh; margin-top: 0 !important; padding: 20px 24px 28px !important; border-radius: 0; border-top: 0; background: #f8fafc; }
+.app-shell .primary-directory-rail .nav-item.active { color: #1668dc; background: #eff6ff; border-color: #dbeafe; box-shadow: none; }
+.app-shell .primary-directory-rail .nav-item.active .nav-icon { color: #1668dc; }
+.point-visualization-panel { border: 0; box-shadow: none; border-radius: 0; background: transparent; }
+.point-visualization-frame { height: calc(100dvh - 40px); min-height: 760px; }
