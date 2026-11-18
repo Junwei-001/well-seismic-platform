@@ -26,6 +26,7 @@ models/task-models/**/*.pth
 models/task-models/**/*.safetensors
 models/task-models/**/*.ckpt
 models/task-models/**/*.onnx
+models/task-models/**/payload/
 runtime/**/artifacts/
 *.sqlite3
 *.sqlite3-shm

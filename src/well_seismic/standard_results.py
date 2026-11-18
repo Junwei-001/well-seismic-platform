@@ -492,6 +492,13 @@ def _visualization_asset_from_file(
         model_id = str(result.get("model_id") or "")
         output_key = str(download.get("output_key") or "")
         if (
+            model_id == "sixtrack_reconstruction_p21"
+            and output_key == "prediction_points_npz"
+            and suffix == ".npz"
+        ):
+            renderer_info = ("points", "server_reconstruction_points")
+            axis_order = ["X_normalized", "Y_normalized", "Z_normalized"]
+        if (
             model_id == _DIRECT12B_MODEL_ID
             and output_key == "prediction_npz"
             and suffix == ".npz"
@@ -754,7 +761,8 @@ def build_standard_result_bundle(
     )
     if not has_spatial_platform_viewer:
         for asset in spatial_assets:
-            asset["renderer"] = "server_spatial_slices"
+            if asset["renderer"] != "server_reconstruction_points":
+                asset["renderer"] = "server_spatial_slices"
 
     def preferred_order(item: Mapping[str, Any]) -> tuple[int, int, str]:
         output_key = str((item.get("metadata") or {}).get("output_key") or "")
@@ -1548,6 +1556,10 @@ def render_standard_result_visualization(
             f"<img class='preview-image' src='{html.escape(str(selected['download_url']))}' "
             f"alt='{html.escape(str(selected['name']))}'>"
         )
+    elif renderer == "server_reconstruction_points":
+        from .reconstruction_point_view import render_query_points
+
+        content = render_query_points(resolved.path)
     elif renderer == "server_npz_sequence":
         content = _direct12b_sequence_html(resolved.path)
     elif renderer == "server_spatial_slices":

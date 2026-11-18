@@ -331,6 +331,58 @@ def test_harness_viewer_query_and_navigation_are_owned(harness, monkeypatch):
     assert len(observed) == 1
 
 
+def test_p21_visualization_receipt_requires_real_interactive_content(harness):
+    pid = harness.execute(OWNER, "project_create", {"name": "P21 dev fold"})[
+        "project_id"
+    ]
+    task_id = uuid.uuid4().hex
+    harness.test_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "completed",
+        "result": {"prediction": {"model_id": "sixtrack_reconstruction_p21"}},
+    }
+    harness.bind_task(OWNER, pid, task_id)
+    harness.native["visualization"] = lambda **kwargs: HTMLResponse(
+        '<main id="workbench"><canvas id="point-canvas"></canvas>'
+        '<select id="point-view"></select></main>'
+    )
+    args = {"project_id": pid, "task_id": task_id}
+    result = harness.execute(OWNER, "visualization", args)
+    assert result["status"] == "completed"
+    assert result["result"]["viewer_available"] is True
+    assert result["result"]["viewer_kind"] == "p21_query_points"
+    assert "盖亚" in result["result"]["viewer_entry"]
+
+    harness.native["visualization"] = lambda **kwargs: HTMLResponse(
+        '<main id="workbench">No plotted points</main>'
+    )
+    rejected = harness.execute(OWNER, "visualization", args)
+    assert rejected["status"] == "blocked"
+    assert rejected["error"]["code"] == "visualization_unavailable"
+    with pytest.raises(HTTPException) as other:
+        harness.own_task(OTHER, pid, task_id)
+    assert other.value.status_code == 404
+
+
+def test_archive_deduplicates_same_declared_file_without_losing_receipt(harness):
+    artifact = harness.root / "outputs" / "prediction.npz"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"sealed native output")
+    task_id = uuid.uuid4().hex
+    task = {
+        "task_id": task_id,
+        "status": "completed",
+        "result": {"prediction": {
+            "outputs": {"prediction": str(artifact)},
+            "output_files": {"prediction": str(artifact)},
+        }},
+    }
+    files, names = harness._task_archive_files(task_id, task)
+    assert "results/task.json" in files
+    assert len(files) == 2
+    assert list(names.values()) == ["prediction.npz"]
+
+
 def test_blocked_upload_dvc_does_not_block_health_or_catalog(harness, monkeypatch):
     monkeypatch.setattr(
         "well_seismic.gaia_tasks.service_token", lambda: "test-service-token-" * 3

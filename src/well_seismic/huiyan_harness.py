@@ -184,6 +184,17 @@ ACTION_SPECS = {
             ["project_id", "task_id", "interpretation_task", "model_id"],
         ),
     ),
+    "p21_reconstruction": (
+        "在已登记的 Volve 开发折上执行 P21 三维条件重建；只接受折号 0–4，不代表新工区预测。",
+        _object(
+            {
+                "project_id": P,
+                "fold_id": {"type": "integer", "minimum": 0, "maximum": 4,
+                            "description": "已封装的 Volve 开发折编号 0–4"},
+            },
+            ["project_id", "fold_id"],
+        ),
+    ),
     "horizon_attribute_analysis": (
         "执行原生层位或物性模型；必须指定原始模型，不以简单统计替代训练模型。",
         _object(
@@ -202,7 +213,7 @@ ACTION_SPECS = {
         _object({"project_id": P, "task_id": T}, ["project_id", "task_id"]),
     ),
     "visualization": (
-        "返回所属任务的原生预览和查看链接。",
+        "核验所属任务的原生预览和可交互结果；在盖亚任务卡打开页面。",
         _object({"project_id": P, "task_id": T}, ["project_id", "task_id"]),
     ),
     "model_assets": ("查询原生模型能力与缺失资产合同。", _object({})),
@@ -410,7 +421,7 @@ class HuiyanHarness:
         for name, (description, parameters) in ACTION_SPECS.items():
             ready = {"status": "ready"}
             if (
-                name in {"prediction", "horizon_attribute_analysis"}
+                name in {"prediction", "horizon_attribute_analysis", "p21_reconstruction"}
                 and interface_only_enabled()
             ):
                 ready = {
@@ -891,7 +902,7 @@ class HuiyanHarness:
         """Refresh only owned native submissions; never recursively query self."""
         self.own_task(subject, project_id, task_id)
         native_operations = {
-            "data_prepare", "registration", "sample_build", "prediction",
+            "data_prepare", "registration", "sample_build", "prediction", "p21_reconstruction",
             "horizon_attribute_analysis",
         }
         with self.lock:
@@ -951,10 +962,13 @@ class HuiyanHarness:
             )
         files = {"results/task.json": path}
         artifact_names = {}
+        seen_declared_sources = set()
+        declared_count = 0
 
         # Only native-declared output artifacts from an owned task and a trusted
         # data root may enter DVC. No arbitrary model-supplied file paths.
         def collect(value, prefix="result", inside_outputs=False):
+            nonlocal declared_count
             if isinstance(value, dict):
                 # Native artifact records carry a path plus labels and hashes;
                 # those descriptive strings are not themselves file names.
@@ -966,6 +980,11 @@ class HuiyanHarness:
                     collect(value["path"], prefix + "/path", True)
                     return
                 for key, item in value.items():
+                    if key == "standard_result_bundle":
+                        # This is a public download catalogue, not a collection
+                        # of filesystem paths. Its source files are declared in
+                        # prediction.outputs and sealed by output_integrity.
+                        continue
                     collect(
                         item,
                         prefix + "/" + str(key),
@@ -990,6 +1009,17 @@ class HuiyanHarness:
                         "artifact_unavailable",
                         "任务声明的结果工件缺失或超出允许的数据根，未完成归档。",
                     )
+                declared_count += 1
+                if declared_count >= 100:
+                    raise HarnessBlocked(
+                        "artifact_limit",
+                        "任务结果工件超过归档上限，未截断为不完整版本。",
+                    )
+                # A native result can declare one file in both outputs and
+                # output_files. Keep one DVC entry, but do not collapse aliases
+                # through resolve(): the DVC source guard must still see them.
+                if candidate in seen_declared_sources:
+                    return
                 if len(files) >= 100:
                     raise HarnessBlocked(
                         "artifact_limit",
@@ -1008,6 +1038,7 @@ class HuiyanHarness:
                 # symlinks and Windows reparse points before copying it.
                 files[logical] = candidate
                 artifact_names[logical] = resolved.name
+                seen_declared_sources.add(candidate)
 
         collect(task.get("result") or {})
         return files, artifact_names
@@ -1236,6 +1267,22 @@ class HuiyanHarness:
                 self.own_task(subject, project_id, args["registration_task_id"])
                 effective.registration_task_id = args["registration_task_id"]
             return self._submit(subject, project_id, op, effective)
+        if op == "p21_reconstruction":
+            self.project(subject, project_id)
+            if interface_only_enabled():
+                raise HarnessBlocked(
+                    "model_assets_missing",
+                    "当前为无权重接口版，P21 模型载荷未安装，未执行三维重建。",
+                    self._model_contract(),
+                )
+            payload = PredictionRequest(
+                model_id="sixtrack_reconstruction_p21",
+                task_id="volume_reconstruction",
+                options={"fold_id": args["fold_id"]},
+                device="cpu",
+                output_directory=str(self.root / "outputs" / uuid.uuid4().hex[:20]),
+            )
+            return self._submit(subject, project_id, "prediction", payload)
         if op in {"prediction", "horizon_attribute_analysis"}:
             self.own_task(subject, project_id, args["task_id"])
             if args.get("registration_task_id"):
@@ -1305,7 +1352,7 @@ class HuiyanHarness:
                         result,
                     )
                 return result
-            return {
+            result = {
                 "project_id": project_id,
                 "task_id": args["task_id"],
                 "native_status": task.get("status"),
@@ -1317,6 +1364,26 @@ class HuiyanHarness:
                 + "/visualization",
                 "scope": "原生任务可视化，数据与模型结果是否可用由原生页面判定",
             }
+            prediction = (task.get("result") or {}).get("prediction") or {}
+            if prediction.get("model_id") == "sixtrack_reconstruction_p21":
+                response = self.native["visualization"](task_id=args["task_id"])
+                body = response.body.decode("utf-8")
+                if (
+                    response.status_code != 200
+                    or not re.search(r"\bid=['\"]workbench['\"]", body)
+                    or 'id="point-canvas"' not in body
+                    or 'id="point-view"' not in body
+                ):
+                    raise HarnessBlocked(
+                        "visualization_unavailable",
+                        "P21 结果页未通过原生交互内容校验，不能宣称可查看。",
+                    )
+                result.update(
+                    viewer_available=True,
+                    viewer_kind="p21_query_points",
+                    viewer_entry="盖亚已完成任务卡中的慧眼结果页面",
+                )
+            return result
         if op == "model_assets":
             return {
                 "capabilities": public_value(self.native["capabilities"]()),

@@ -35,7 +35,7 @@
 
 上传按当前账号、工程、角色、原始文件名及内容 SHA256 去重。已有成功回执原样复用；已有资产但 `versioning.status=blocked` 时，用户在原项目重传同文件会重新检查原资产归属及哈希，只恢复其归档，不重写文件、不创建新资产。成功后更新上传缓存并复用同一版本；不会修改其他项目的资产或失败回执。请求中断后未形成回执的持久化上传声明仍明确返回 409，不盲目重做可能已完成的注册。
 
-显式 `dvc_archive(task_id)` 与自动归档共用完整工件收集器，包含所属原生任务声明的 `outputs`、`output_files`、`artifacts` 文件及不可变任务摘要。结构化 artifact 的 `path` 是文件路径，名称、类型和哈希是描述字段。声明工件缺失、越界、无法定位或超量时整次归档失败，不能仅归档任务 JSON 后宣称结果完整。相同文件内容、元数据及父版本的归档复用已有版本；协调与完整性边界见 [DVC 版本说明](dvc-versions.md#归档去重与故障恢复)。
+显式 `dvc_archive(task_id)` 与自动归档共用完整工件收集器，包含所属原生任务声明的 `outputs`、`output_files`、`artifacts` 文件及不可变任务摘要。结构化 artifact 的 `path` 是文件路径，名称、类型和哈希是描述字段。同一个原生绝对路径若在多个结果字段重复声明，只归档一次；仍按声明条目总数执行 99 项上限，路径别名仍交给 DVC 源路径守卫检查。声明工件缺失、越界、无法定位或超量时整次归档失败，不能仅归档任务 JSON 后宣称结果完整。相同文件内容、元数据及父版本的归档复用已有版本；协调与完整性边界见 [DVC 版本说明](dvc-versions.md#归档去重与故障恢复)。
 
 手动归档回执在 `result` 保留 `task_id`（仅资产归档时为 null）和 `source_execution_ids`。恢复成功后，新的 `task_status` 查询返回 `result.archival_recovery={execution_id, revision_id, status:'completed', source_execution_ids}`，当前查询的 `revision_id` 指向已核验的恢复版本；`original_executions` 和历史原生执行的失败回执不改写。只有来源执行匹配的 `versioning_incomplete` 可在新查询中解除；归档恢复不解除业务质量失败、其他原生失败或缺模型权重。AI 的大回执摘要保留有界的恢复关联与原执行状态，完整事实仍在所属执行记录中。
 
@@ -49,8 +49,9 @@
 - `curve_mapping`：只允许知识库认可的同义曲线名，例如 RHOB→DEN。生成新 LAS，原生重新解析并验证深度、值和 masks 不变。原始数据不覆盖。未知单位导致全无效值时 blocked，不能用改名伪装单位修复。内部 canonical 仍是 RHOB，保证既有物理算法合同一致。
 - `registration`：原生 `create_registration_preflight`→`create_registration_task`，保留 CRS、时深、质量和同源检查。
 - `sample_build`：原生 `create_sample_building_task`，只使用所属账号的源快照与标定结果。
-- `prediction`、`horizon_attribute_analysis`：原生预测入口。当前接口版缺原始任务权重和 WellFuse 运行时，明确返回 `model_assets_missing`，不生成随机权重或简化算法结果。
-- `task_status`、`visualization`：真实任务结果与原生页面，不制造预测或指标。
+- `prediction`、`horizon_attribute_analysis`：原生预测入口；未安装的原始任务模型保持 `model_assets_missing` 或原生不可用，不生成随机权重或简化算法结果。
+- `p21_reconstruction`：仅在显式 full_runtime、P21 五折载荷哈希核验通过及扩展已注册时接受当前账号项目 ID 与 `fold_id`（0–4），调用原生 CPU worker。开发折输入随模型档案封存；拒绝把此结果表述为新工区或完整三维体积预测。
+- `task_status`、`visualization`：真实任务结果与原生页面，不制造预测或指标。P21 `visualization` 回执只有在原生 HTML 确实返回工作台及可交互查询点控件时才给出 `viewer_available=true`、`viewer_kind=p21_query_points`。模型可见摘要只保留任务编号和“从盖亚已完成任务卡打开”的说明，内部导航地址仍由盖亚界面解析。
 - `dvc_status/archive/list/get/compare/restore`：调用真实 `DvcVersionStore`。上传、曲线映射与已完成原生任务自动归档；恢复到新目录并根据版本内封存角色登记新资产，允许重跑，不覆盖当前或封存文件。
 
 数据、执行与所有权记录在忽略的运行目录中，服务重启后仍可读取完成历史。回执剥离本机绝对路径；DVC 逻辑文件名短且稳定，原名、角色、血缘和哈希保留在版本元数据中。

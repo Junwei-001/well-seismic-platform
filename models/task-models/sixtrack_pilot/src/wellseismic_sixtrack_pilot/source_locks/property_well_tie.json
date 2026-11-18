@@ -1,0 +1,25 @@
+{
+  "archive_sha256": "9b2e00389446802f7306a2798c3d2f216251eb7744b6c7ad61e1f3e242bcb347",
+  "extrapolated_query_sample_ids": [
+    "target6_porosity_phif-0e9dad7fdf88f32fd943",
+    "target6_porosity_phif-16cb2fa5626fa64ef5d2",
+    "target6_porosity_phif-201f756d25c7a2cdcd3e",
+    "target6_porosity_phif-2995b733b0a165b40313",
+    "target6_porosity_phif-2de91eccc748661f478c",
+    "target6_porosity_phif-33ac9cec9ad497a090ee",
+    "target6_porosity_phif-40febc162be1716c7350",
+    "target6_porosity_phif-58bb0727eb4ceb0f7c17",
+    "target6_porosity_phif-5d5fd25ee809fa87ae16",
+    "target6_porosity_phif-5f8bbe018376780257ac",
+    "target6_porosity_phif-85c6218ae4e76d6a36c5",
+    "target6_porosity_phif-880f697c7221e4b117fa",
+    "target6_porosity_phif-b077a5db0d1910059ceb",
+    "target6_porosity_phif-b648c8db41674a294bb5",
+    "target6_porosity_phif-b683dec0c4fcf6342c16",
+    "target6_porosity_phif-d4c10faf065922af4fd1",
+    "target6_porosity_phif-d9270d0990ed7d53c1bd",
+    "target6_porosity_phif-fe52405e1e2a9a21714e"
+  ],
+  "evidence_sha256": "2b96159a8458ebf3878da956e86993678e6b0505d3afe1929aa4e66d02c48e34",
+  "evidence": "docs/evidence/p71-property-well-tie-20261013/verification.json"
+}

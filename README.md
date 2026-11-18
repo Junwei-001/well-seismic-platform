@@ -1,6 +1,15 @@
-# 地层慧眼平台｜独立接口版（无任务权重）
+# 地层慧眼平台｜接口版与受限 P21 开发折运行时
 
-当前任务1实现与安装入口见 [慧眼受控业务工具接口](docs/huiyan-harness.md) 和 [DVC 数据版本与恢复](docs/dvc-versions.md)。盖亚工具与登录后的慧眼侧栏共用19项受控动作，支持项目/资产、曲线预览与映射、原生任务调用、结果查看和本地 DVC 版本操作。侧栏当前任务的项目关联由服务端按登录身份与任务 ID 查询，不依赖用户提供项目 ID 或项目列表顺序；旧任务未绑定时明确提示先关联项目。
+2026-11-17 本分支增加六赛道参考扩展的受限载荷接入源码。默认仍保留
+`models/INTERFACE_ONLY` 标记，不附带模型载荷；扩展包仅声明
+`sixtrack_reconstruction_p21` 和 `sixtrack_fault_local_logistic_audited_v2` 两个入口，
+只有另行核验并安装载荷后才能启用。其余赛道因原始载荷不齐保持不可运行。
+本轮在隔离环境实际端到端验证的是 P21：Volve 原开发折 0–4 的
+CPU 条件重建，不是新工区预测或完整三维体积重建。断层轻量模型虽完成载荷登记，尚未
+在盖亚访客全流程中验收。下文保留原接口版的安装与历史背景；不能将其旧验证记录当作
+本分支的六赛道验收。具体边界和本地证据见 [P21 离线验收记录](docs/p21-offline-acceptance.md)。
+
+当前任务1实现与安装入口见 [慧眼受控业务工具接口](docs/huiyan-harness.md) 和 [DVC 数据版本与恢复](docs/dvc-versions.md)。盖亚工具与登录后的慧眼侧栏共用20项受控动作，支持项目/资产、曲线预览与映射、原生任务调用、结果查看和本地 DVC 版本操作。侧栏当前任务的项目关联由服务端按登录身份与任务 ID 查询，不依赖用户提供项目 ID 或项目列表顺序；旧任务未绑定时明确提示先关联项目。
 
 已在隔离普通账号与合成数据上验证实际 MiniMax 工具调用、数据准备、提供时深关系的标定、融合样本以及版本比较/恢复；这不代表训练模型或真实地质效果通过验收。最新验收边界见配套 [Gaia PR #243](https://github.com/Gaia-Model/Gaia-2.0/pull/243) 与 [慧眼 PR #1](https://github.com/Gaia-Model/well-seismic-platform/pull/1)，均为草稿，未合并或生产发布。
 
@@ -32,11 +41,15 @@
 
 ## 当前运行边界
 
-启动脚本会设置 `WELLFUSE_MODEL_MODE=interfaces_only`。后端仍返回完整的
+默认启动脚本仍设置 `WELLFUSE_MODEL_MODE=interfaces_only`，仓库也保留
+`models/INTERFACE_ONLY` 标记。只有在已核验载荷和插件 entry point 的隔离环境中，
+完成部署审查、移除该标记并显式设置 `WELLFUSE_MODEL_MODE=full_runtime`，才运行
+本分支的 P21 开发折；不要把模式开关当作所有模型权重已齐全。接口模式下后端仍返回完整的
 `/api/v1/capabilities` 和 `/api/v1/releases` 合同，但任务模型的
 `runtime_status` 为 `adapter_required`、运行器列表为空，提交预测会得到结构化的
-“模型不可运行”响应，不会尝试寻找或加载隐含权重。`models/INTERFACE_ONLY` 是同样的
-fail-closed 标记，即使直接执行 `python -m well_seismic.api` 也会保持该模式。
+“模型不可运行”响应，不会尝试寻找或加载隐含权重。`models/manifest.json` 的
+`weights_attached=false` 描述仓库默认状态；本地离线验收使用另行安装的私有载荷，
+不能据此把代码仓库标为已带权重。
 
 不依赖任务权重的现有数据解析、曲线映射、数据准备、提供时深关系的标定、融合样本及可视化可通过受控 Harness 调用；它们仍保留原生输入、同源与质量检查。依赖原始 checkpoint/运行时的预测或层位/物性模型保持明确阻塞。不要把此目录误认为已完成模型部署包。
 

@@ -1,0 +1,6 @@
+# Optional isolated GFM worker environment, verified on CPU with locked assets.
+-r requirements-model-runtime.txt
+timm==1.0.28
+torchvision==0.28.0
+safetensors==0.8.0
+pillow==12.3.0

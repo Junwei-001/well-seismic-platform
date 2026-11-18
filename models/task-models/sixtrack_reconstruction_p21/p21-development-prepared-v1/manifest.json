@@ -1,0 +1,119 @@
+{
+  "schema_version": "well-seismic.sixtrack-model-payload.v1",
+  "model_id": "sixtrack_reconstruction_p21",
+  "version": "p21-development-prepared-v1",
+  "task_id": "volume_reconstruction",
+  "display_name": "三维重建 P21（开发集条件重建·档案绑定）",
+  "runner": {
+    "kind": "isolated_subprocess",
+    "worker_module": "wellseismic_sixtrack_pilot.worker.reconstruction_request",
+    "python_env": "WELL_SEISMIC_SIXTRACK_PYTHON",
+    "device": "cpu"
+  },
+  "payload": [
+    {
+      "role": "development_fold_index",
+      "path": "development_folds.json",
+      "size": 1746,
+      "sha256": "cfd4639f9a016e08cad2ea7e1da7b045534b07c82e66aa64c9428427dcf73cc3",
+      "source": {
+        "kind": "platform_recipe",
+        "path": "models/task-models/sixtrack_reconstruction_p21/p21-development-prepared-v1/development_folds.json"
+      }
+    },
+    {
+      "role": "prepared_fold_0",
+      "path": "payload/fold_0_prepared.npz",
+      "size": 258038,
+      "sha256": "f61dcb71f8ba28cec2567cb27ee548c94e719ba8cf80f811d2e23f4b79ac48dd",
+      "source": {
+        "kind": "reconstruction_prepared",
+        "path": "fold_0_prepared.npz",
+        "recipe": "models/task-models/sixtrack_pilot/tools/replay_reconstruction_p21.py"
+      }
+    },
+    {
+      "role": "prepared_fold_1",
+      "path": "payload/fold_1_prepared.npz",
+      "size": 259291,
+      "sha256": "794afd452aede5705cc9aeec806150bf9e4f55b84dd956cb58c06d925db0b1ce",
+      "source": {
+        "kind": "reconstruction_prepared",
+        "path": "fold_1_prepared.npz",
+        "recipe": "models/task-models/sixtrack_pilot/tools/replay_reconstruction_p21.py"
+      }
+    },
+    {
+      "role": "prepared_fold_2",
+      "path": "payload/fold_2_prepared.npz",
+      "size": 264584,
+      "sha256": "a9c380731bd0aaa24f1422bda6fe938389feddb192022e6af380264679d69e0a",
+      "source": {
+        "kind": "reconstruction_prepared",
+        "path": "fold_2_prepared.npz",
+        "recipe": "models/task-models/sixtrack_pilot/tools/replay_reconstruction_p21.py"
+      }
+    },
+    {
+      "role": "prepared_fold_3",
+      "path": "payload/fold_3_prepared.npz",
+      "size": 253971,
+      "sha256": "ebc5c743299ed29c2f1f943768a2b632fc2e4c123b5a47df493722dfb33fd75f",
+      "source": {
+        "kind": "reconstruction_prepared",
+        "path": "fold_3_prepared.npz",
+        "recipe": "models/task-models/sixtrack_pilot/tools/replay_reconstruction_p21.py"
+      }
+    },
+    {
+      "role": "prepared_fold_4",
+      "path": "payload/fold_4_prepared.npz",
+      "size": 272213,
+      "sha256": "1b5cc7e14300187180d8764c476e4f5876a5a45e2d0947984d3f0158d07f901c",
+      "source": {
+        "kind": "reconstruction_prepared",
+        "path": "fold_4_prepared.npz",
+        "recipe": "models/task-models/sixtrack_pilot/tools/replay_reconstruction_p21.py"
+      }
+    }
+  ],
+  "evidence": {
+    "original_parity": {
+      "path": "docs/evidence/sixtrack-reconstruction-p21-original-parity-20261002.json",
+      "sha256": "2319f4520ad225409028a15ba8faee03971a89a18985de3e9f5e6cf0a6496e21",
+      "status": "10240_DEVELOPMENT_PREDICTIONS_BITWISE_EQUAL"
+    },
+    "managed_worker": {
+      "path": "docs/evidence/sixtrack-reconstruction-p21-managed-worker-20261002.json",
+      "sha256": "c6ab5c10519c7a7e476681764f04b6f9ce164d31559027131c428ac2738c1368",
+      "status": "FIVE_FOLDS_AND_LIVE_PROCESS_CANCELLATION_VERIFIED"
+    }
+  },
+  "license": {
+    "code": "research kernel provenance recorded; distribution review pending",
+    "training_data": "Volve public release; complete licence review pending",
+    "feature_encoder": "GFM pretrained feature cache; licence and corresponding source review pending"
+  },
+  "input_contract": {
+    "mode": "dataset_bound",
+    "options": {
+      "fold_id": "required integer 0..4"
+    },
+    "support": "512 original legal support labels per fold; query targets absent",
+    "features": "original normalized geometry, train-only seismic scaling and GFM 16-component PCA",
+    "baseline": "precomputed original PyKrige OOF predictions, no new-area computation",
+    "rejected": "raw paths, snapshot lineage, crop/patch/threshold, device other than CPU"
+  },
+  "output_contract": {
+    "predictions_npz": "2048 query predictions and three kernel components, original row order",
+    "receipt": "selected fold, prepared input hash, output hash, index hashes and runtime provenance"
+  },
+  "applicability": {
+    "domain": "original Volve conditional development reconstruction with existing well constraints",
+    "known_quality": "original development RMSE 0.027734374378067677; exact numerical parity",
+    "new_area_supported": false,
+    "full_volume_supported": false
+  },
+  "claim_boundary": "仅原始开发集条件重建；不是严格空间留出或新工区验证，未提供新区域特征准备或实际 PyKrige 基线计算；不代表完整三维重建工作流或统一发布。",
+  "submission_channel": "api_only: POST /api/v1/prediction/tasks; task_id=volume_reconstruction; options.fold_id required"
+}

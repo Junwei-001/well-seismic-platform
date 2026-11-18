@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "well-seismic-sixtrack-pilot"
+version = "0.1.0"
+description = "Offline P21 reconstruction and fault baseline extensions; other six-track assets are not bundled"
+requires-python = ">=3.11"
+# Installed into the platform .venv next to well-seismic-pipeline.  The model
+# interpreter (torch/tabicl/segyio) is a separate venv named by
+# WELL_SEISMIC_SIXTRACK_PYTHON and is never imported by the platform process.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+wellseismic_sixtrack_pilot = ["source_locks/*.json"]
+
+# Only models with hash-verified payloads are exposed by this partial package.
+[project.entry-points."well_seismic.plugins"]
+sixtrack_fault_local_logistic_audited_v2 = "wellseismic_sixtrack_pilot.plugin:register_sixtrack_fault_local_logistic_audited_v2"
+sixtrack_reconstruction_p21 = "wellseismic_sixtrack_pilot.plugin:register_sixtrack_reconstruction_p21"
+
+[project.entry-points."well_seismic.interpretation_tasks"]
+volume_reconstruction = "wellseismic_sixtrack_pilot.plugin:register_reconstruction_task"
+
+[project.entry-points."well_seismic.input_adapters"]
+sixtrack_fault_local_logistic_audited_v2 = "wellseismic_sixtrack_pilot.plugin:adapter_sixtrack_fault_local_logistic_audited_v2"
+sixtrack_reconstruction_p21 = "wellseismic_sixtrack_pilot.plugin:adapter_sixtrack_reconstruction_p21"
+
+[project.entry-points."well_seismic.prediction_runners"]
+sixtrack_fault_local_logistic_audited_v2 = "wellseismic_sixtrack_pilot.runner:sixtrack_fault_local_logistic_audited_v2"
+sixtrack_reconstruction_p21 = "wellseismic_sixtrack_pilot.runner:sixtrack_reconstruction_p21"

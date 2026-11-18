@@ -1,0 +1,74 @@
+{
+  "archive_sha256": "9b2e00389446802f7306a2798c3d2f216251eb7744b6c7ad61e1f3e242bcb347",
+  "units_by_well": {
+    "15/9-19 A": [
+      "API",
+      "ohm.m",
+      "v/v_decimal",
+      "g/cm3"
+    ],
+    "15/9-19 BT2": [
+      "API",
+      "ohm.m",
+      "v/v_decimal",
+      "g/cm3"
+    ],
+    "15/9-19 SR": [
+      "API",
+      "ohm.m",
+      "v/v_decimal",
+      "g/cm3"
+    ],
+    "15/9-F-1": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-1 A": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-1 B": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-1 C": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-11 A": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-11 B": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-11 T2": [
+      "API",
+      "ohm.m",
+      "v/v",
+      "g/cm3"
+    ],
+    "15/9-F-12": [
+      "API",
+      "ohm.m",
+      "v/v_decimal",
+      "g/cm3"
+    ]
+  },
+  "units_sha256": "bcbc8d138c10017333ea53ed86303ee5a0850a9ded4d9343198e160fbc3d57b9",
+  "evidence": "docs/evidence/p71-property-las-units-20261013/verification.json",
+  "evidence_sha256": "3bf8f2c2a632725b91f54045fb64cb357da924c7f4b97f5416459dcc1a6242ed"
+}

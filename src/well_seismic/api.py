@@ -81,6 +81,7 @@ from .direct12b_runtime import (
     validate_direct12b_request_options,
 )
 from .fault_models import is_fault_volume_model_id
+from .extension_sources import resolve_extension_source
 from .faultseg_visualization import (
     DEFAULT_FAULTSEG_MASK_SAMPLE_CACHE,
     DEFAULT_FAULTSEG_SLICE_CACHE,
@@ -8925,6 +8926,12 @@ def _run_prediction(task_id: str, request: PredictionRequest) -> None:
                     else "content_hashed_unbound"
                 ),
             }
+        elif (
+            extension_source := resolve_extension_source(
+                registered_spec, project_root=PROJECT_ROOT
+            )
+        ) is not None:
+            source, prediction_source_identity = extension_source
         else:
             source = (
                 Path(
@@ -11927,7 +11934,60 @@ def assistant_chat(request: AssistantChatRequest) -> dict[str, Any]:
     }
 
 
+def gaia_owned_visualization(task_id: str, *, embed: bool = True, **selectors: Any) -> Response:
+    """Serve a sealed P21 point view through the existing owner-scoped Gaia route."""
+
+    task = get_task(task_id)
+    prediction = (task.get("result") or {}).get("prediction") or {}
+    if prediction.get("model_id") != "sixtrack_reconstruction_p21":
+        return unified_data_visualization(task_id=task_id, embed=embed, **selectors)
+    if selectors:
+        raise HTTPException(422, "P21 查询点视图不接受其他数据选择器")
+    _task, prediction = _standard_prediction_result(task_id)
+    bundle = _stored_standard_result_bundle(
+        prediction, execution_task_id=task_id
+    ) or build_standard_result_bundle(
+        prediction, execution_task_id=task_id
+    )
+    points = next(
+        (
+            asset for asset in bundle["visualization"]["assets"]
+            if asset.get("renderer") == "server_reconstruction_points"
+        ),
+        None,
+    )
+    if points is None:
+        raise HTTPException(409, "P21 查询点结果未通过标准产物校验")
+    resolved = resolve_standard_result_artifact(
+        prediction, execution_task_id=task_id,
+        artifact_id=str(points["artifact_id"]),
+    )
+    from .reconstruction_point_view import render_query_points
+
+    content = render_query_points(resolved.path)
+    document = (
+        "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>地层慧眼 · P21 查询点</title><style>"
+        "body{font:16px system-ui,sans-serif;color:#173047;background:#f4f8fb;margin:0;padding:24px}"
+        "main{max-width:1080px;margin:auto;background:white;padding:24px;border-radius:14px}"
+        "button,select{font:inherit;padding:5px 10px;margin:6px}"
+        "</style></head><body><main id='workbench'>"
+        "<h1>P21 三维条件重建 · 原开发折</h1>"
+        "<p>真实 CPU 推理结果；仅展示标准化坐标中的查询点，不代表新工区或全体积预测。</p>"
+        + content + "</main></body></html>"
+    )
+    return HTMLResponse(document, headers={"Cache-Control": "private, no-store"})
+
+
 _harness_root = PROJECT_ROOT / "data" / "huiyan_harness"
+_dvc_root_setting = os.environ.get("WELL_SEISMIC_DVC_ROOT")
+if _dvc_root_setting is not None and not Path(_dvc_root_setting).is_absolute():
+    raise RuntimeError("WELL_SEISMIC_DVC_ROOT must be an absolute path")
+_harness_dvc_root = (
+    Path(_dvc_root_setting) if _dvc_root_setting is not None
+    else PROJECT_ROOT / "data" / "huiyan_dvc"
+)
 _harness_source_roots = [
     _harness_root, PROJECT_ROOT / "data" / "gaia_tasks",
     PROJECT_ROOT / "model_outputs", PROJECT_ROOT / "输出结果",
@@ -11937,7 +11997,7 @@ _huiyan_harness = HuiyanHarness(
     legacy_root=PROJECT_ROOT / "data" / "gaia_tasks",
     allowed_output_roots=_harness_source_roots,
     dvc_store=DvcVersionStore(
-        PROJECT_ROOT / "data" / "huiyan_dvc",
+        _harness_dvc_root,
         allowed_source_roots=_harness_source_roots,
     ),
     native={
@@ -11948,7 +12008,7 @@ _huiyan_harness = HuiyanHarness(
         "prediction": create_prediction_task,
         "task": get_task,
         "capabilities": capabilities,
-        "visualization": lambda **kwargs: unified_data_visualization(**kwargs),
+        "visualization": lambda **kwargs: gaia_owned_visualization(**kwargs),
     },
 )
 app.include_router(build_huiyan_harness_router(_huiyan_harness))
@@ -11983,7 +12043,7 @@ app.include_router(build_gaia_ui_router(
     PROJECT_ROOT / "data" / "gaia_tasks", FRONTEND_DIST,
     get_task=get_task, capabilities=capabilities, health=health, assistant=assistant_chat,
     assistant_owned=assistant_chat_authenticated, execution=_huiyan_harness.get_run,
-    visualization=lambda task_id, **kwargs: unified_data_visualization(task_id=task_id, embed=True, **kwargs),
+    visualization=lambda task_id, **kwargs: gaia_owned_visualization(task_id=task_id, embed=True, **kwargs),
     manifest=lambda task_id: get_prediction_artifact(task_id, "snapshot_manifest"),
 ))
 

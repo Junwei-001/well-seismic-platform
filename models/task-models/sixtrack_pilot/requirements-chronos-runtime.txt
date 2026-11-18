@@ -1,0 +1,5 @@
+# Isolated optional P7 CPU environment; do not install into the platform interpreter.
+# Actual probe used the existing Volve runtime (torch 2.12.1, numpy 2.4.4).
+chronos-forecasting==2.2.0
+transformers==4.50.0
+pandas==3.0.3
