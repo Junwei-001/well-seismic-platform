@@ -26,7 +26,7 @@ from .gaia_minimax import (
     request_minimax_message,
     request_openai_message,
 )
-from .huiyan_harness import FAST_ASSISTANT_OPERATIONS
+from .huiyan_harness import FAST_ASSISTANT_OPERATIONS, MAX_LIST_PAGE
 
 MAX_ROUNDS = 6
 MAX_CALLS = 12
@@ -310,26 +310,78 @@ _OPERATION_LABELS = {
     "dvc_compare": "比较版本",
     "dvc_restore": "恢复版本",
 }
-_INTERNAL_REPLY = re.compile(
-    r"(?<![A-Za-z0-9])(?:(?:sha256:|[a-z]{1,4}_)?[0-9a-f]{32,64})(?![A-Za-z0-9])"
-    r"|(?<![A-Za-z_])(?:task_id|project_id|revision_id|execution_id|job_id|operation_id|"
-    r"viewer_available|truncated|preview|" + "|".join(_OPERATION_LABELS) + r")(?![A-Za-z_])"
-    r"|本轮实际执行状态|回答保留证据边界|不把一页说成全部|摘要已截断",
+_REPLY_LABELS = {
+    **_OPERATION_LABELS,
+    "task_id": "任务编号",
+    "project_id": "工区编号",
+    "revision_id": "归档版本",
+    "execution_id": "执行编号",
+    "job_id": "作业编号",
+    "operation_id": "操作编号",
+    "viewer_available": "结果是否可查看",
+    "truncated": "未列全",
+    "preview": "预览",
+}
+_REPLY_FIELDS = re.compile(
+    r"(?<![A-Za-z0-9_])(?:"
+    + "|".join(sorted(_REPLY_LABELS, key=len, reverse=True))
+    + r")(?![A-Za-z0-9_])", re.IGNORECASE,
+)
+_ID_VALUE = (
+    r"(?:(?:sha256:|[a-z]{1,4}_)?[0-9a-f]{32,64}"
+    r"|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+)
+_INTERNAL_ID = re.compile(r"(?<![A-Za-z0-9_])" + _ID_VALUE + r"(?![A-Za-z0-9_])", re.IGNORECASE)
+_ID_SENTENCE = re.compile(
+    r"(?<![^。！？；\n])\s*(?:\d+[.、]\s*)?`?"
+    r"(?:task_id|project_id|revision_id|execution_id|job_id|operation_id)"
+    r"`?\s*(?:为|是|[:：=])\s*`?" + _ID_VALUE + r"`?\s*[。！？；\n]?",
     re.IGNORECASE,
 )
 
 
 def _clean_reply(answer: str) -> str:
-    return "".join(
-        sentence for sentence in re.split(r"(?<=[。！？；\n])", answer)
-        if not _INTERNAL_REPLY.search(sentence)
-    ).strip()
+    # Remove standalone machine references, retain the surrounding facts.
+    answer = _ID_SENTENCE.sub("", answer)
+    answer = _INTERNAL_ID.sub("对应记录", answer)
+    answer = re.sub(r"(?i)\bpreview\b\s*为空对象\s*\{\}", "暂无预览", answer)
+    answer = re.sub(
+        r"(?i)\bviewer_available\b\s*[:：=]\s*(true|false)",
+        lambda match: "结果可查看" if match[1].lower() == "true" else "结果暂不可查看",
+        answer,
+    )
+    answer = _REPLY_FIELDS.sub(lambda match: _REPLY_LABELS[match[0].lower()], answer)
+    return answer.strip()
 
 
-def _unfinished_answer(receipts: list[dict[str, Any]]) -> str:
+def _retry_target(operation: str, arguments: dict, schema: dict) -> tuple[str, str]:
+    """Compare only declared parameters so removal of an extra field can retry."""
+    properties = schema.get("properties", {})
+    target = {key: value for key, value in arguments.items() if key in properties}
+    if operation in {"project_list", "asset_list", "dvc_list"}:
+        # Missing/invalid pagination has no page identity; an explicit offset
+        # that passed schema validation still denotes a distinct page.
+        for key, default in (("offset", 0), ("limit", MAX_LIST_PAGE)):
+            value = target.get(key)
+            field = properties.get(key, {})
+            target[key] = (
+                value
+                if type(value) is int and field.get("minimum", 0) <= value <= field.get("maximum", 2**31 - 1)
+                else default
+            )
+    return operation, json.dumps(target, sort_keys=True, ensure_ascii=False)
+
+
+def _unfinished_answer(
+    receipts: list[dict[str, Any]],
+    retry_targets: dict[int, tuple[str, str]],
+) -> str:
     """Use recorded states if prose could claim an unfinished action succeeded."""
     lines = []
-    for receipt in receipts:
+    completed_targets = set()
+    for index in reversed(range(len(receipts))):
+        receipt = receipts[index]
+        target = retry_targets.get(index)
         result = receipt.get("result") or {}
         task = result.get("task") or {}
         registration = (task.get("result") or {}).get("registration") or {}
@@ -339,6 +391,8 @@ def _unfinished_answer(receipts: list[dict[str, Any]]) -> str:
         if state == "completed" and registration.get("business_status") == "blocked":
             label, detail = "井震标定", "未通过质量检查"
         elif state == "completed":
+            if target is not None:
+                completed_targets.add(target)
             continue
         else:
             label = _OPERATION_LABELS.get(receipt.get("operation"), "本项操作")
@@ -349,12 +403,16 @@ def _unfinished_answer(receipts: list[dict[str, Any]]) -> str:
                 "failed": "未能完成",
             }.get(state, "状态待确认")
         error = receipt.get("error") or {}
+        # A corrected schema rejection did not start a native operation.
+        # Never suppress real execution failures or a different target.
+        if target in completed_targets and error.get("code") == "invalid_arguments":
+            continue
         reason = error.get("message")
         reason = _clean_reply(reason[:240]) if isinstance(reason, str) else ""
         line = f"{label}{detail}。" + reason
         if line not in lines:
             lines.append(line)
-    return "\n".join(lines)
+    return "\n".join(reversed(lines))
 
 
 def _provider_receipt(receipt: dict[str, Any]) -> str:
@@ -465,6 +523,7 @@ def _run_huiyan_agent(
             del session.turns[0]
         prior = [message for old_turn in session.turns for message in old_turn]
         seen: dict[str, dict[str, Any]] = {}
+        retry_targets: dict[int, tuple[str, str]] = {}
         calls = 0
         deadline = time.monotonic() + 180
         fast_deadline = None
@@ -531,7 +590,7 @@ def _run_huiyan_agent(
             return changed
 
         progress(snapshot())
-        for _ in range(MAX_ROUNDS):
+        for round_index in range(MAX_ROUNDS):
             remaining = deadline - time.monotonic()
             if remaining < 2:
                 warning = "本轮操作已到等待时限，请查看执行记录后继续查询。"
@@ -552,7 +611,7 @@ def _run_huiyan_agent(
                 break
             if not tool_calls:
                 answer = _model_identity_answer(settings.model, actual_model) if is_model_identity_question(question) else _clean_reply(prose)
-                final_message = assistant if answer == prose else {**assistant, "content": answer}
+                final_message = assistant
                 break
             if len(tool_calls) > MAX_CALLS - calls:
                 warning = "本轮工具调用达到上限，请查看已有执行记录后继续。"
@@ -599,7 +658,9 @@ def _run_huiyan_agent(
                             fast = name in FAST_ASSISTANT_OPERATIONS
                             options = {"defer_settlement": True} if fast else {}
                             receipt = harness.execute(
-                                subject, name, arguments, str(uuid5(request_id, block["id"])), **options,
+                                subject, name, arguments,
+                                str(uuid5(request_id, f"{round_index}:{block['id']}")),
+                                **options,
                             )
                         except HTTPException as exc:
                             receipt = _http_failure(name, exc)
@@ -611,6 +672,9 @@ def _run_huiyan_agent(
                             )
                         receipt = _bounded_receipt(receipt)
                         seen[signature] = receipt
+                        retry_targets[len(receipts)] = _retry_target(
+                            name, arguments, actions[name]["parameters"],
+                        )
                         receipts.append(receipt)
                         if fast and receipt.get("status") == "running":
                             progress(snapshot())
@@ -653,14 +717,18 @@ def _run_huiyan_agent(
             # The last provider prose preceded this state transition. Summarize
             # verified current receipts instead of retaining its stale claim.
             answer = "执行状态已更新，可以查看本轮结果。"
-        answer = _unfinished_answer(receipts) or answer or (
+        answer = _unfinished_answer(receipts, retry_targets) or answer or (
             "可以查看本轮结果。" if receipts else "本次未取得有效回答，请稍后重试。"
         )
-        if final_message is not None and answer == _clean_reply(prose):
-            turn.append(final_message)
-        else:
-            turn.append({**(final_message or {"role": "assistant"}), "content": answer})
-        session.turns.append(turn)
+        # OpenAI-compatible thinking models expect complete provider turns and
+        # their original reasoning fields. A local fallback is returned to the
+        # user and ledger, but is not inserted as a provider answer.
+        if final_message is not None:
+            turn.append(final_message if answer == prose else {**final_message, "content": answer})
+            session.turns.append(turn)
+        elif settings.protocol != "openai":
+            turn.append({"role": "assistant", "content": answer})
+            session.turns.append(turn)
         session.touched = time.monotonic()
         return {
             "answer": answer,

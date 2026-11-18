@@ -36,3 +36,6 @@ runtime/**/artifacts/
 /frontend/node_modules
 /_tmp/
 /.playwright-cli/
+
+# Raw independent review reports retain their physical paths outside version control.
+/_reports/_foreign_aid/

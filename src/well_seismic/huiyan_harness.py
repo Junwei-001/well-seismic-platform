@@ -114,11 +114,11 @@ ACTION_SPECS = {
         _object({"name": _string(), "task_id": T}, ["name"]),
     ),
     "project_list": (
-        "分页列出当前账号的慧眼项目，最新创建的在前。需要完整列表时继续使用next_offset。",
+        "分页列出当前账号的慧眼项目，最新创建的在前。",
         _object(dict(LIST_PAGE_FIELDS)),
     ),
     "asset_list": (
-        "按登记顺序分页列出项目资产；后续操作使用资产ID，翻页使用next_offset。",
+        "按登记顺序分页列出项目资产。",
         _object({"project_id": P, **LIST_PAGE_FIELDS}, ["project_id"]),
     ),
     "data_prepare": (
@@ -232,7 +232,7 @@ ACTION_SPECS = {
         ),
     ),
     "dvc_list": (
-        "分页列出当前账号项目的DVC版本，最新版本在前；继续查询使用next_offset。",
+        "分页列出当前账号项目的 DVC 版本，最新版本在前。",
         _object({"project_id": P, **LIST_PAGE_FIELDS}, ["project_id"]),
     ),
     "dvc_get": (

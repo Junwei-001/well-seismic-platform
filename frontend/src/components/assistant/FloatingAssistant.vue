@@ -8,6 +8,7 @@ import {
   assistantMessages as messages,
   assistantSending as sending,
   bindAssistantTask,
+  resetConversation,
   beginAssistantRequest,
   isCurrentAssistantRequest,
   acceptAssistantResponse,
@@ -59,6 +60,17 @@ function executionLabel(execution: AssistantExecution) {
 }
 function lastResult(executions: AssistantExecution[]): AssistantExecution | undefined {
   return [...executions].reverse().find((execution) => !!assistantTaskResultReference(execution));
+}
+function resultActionLabel(executions: AssistantExecution[]): string {
+  const result = lastResult(executions);
+  return result?.operation === "p21_reconstruction"
+    || (result?.operation === "visualization" && result.result?.viewer_kind === "p21_query_points")
+    ? "查看三维结果 →" : "查看结果 →";
+}
+function startNewConversation() {
+  resetConversation();
+  attachmentOpen.value = false;
+  void nextTick(() => inputRef.value?.focus());
 }
 function openLastResult(executions: AssistantExecution[]) {
   const result = lastResult(executions);
@@ -143,6 +155,7 @@ watch(
       </span>
       <div class="strata-assistant-identity"><h2>慧眼助手</h2><span>地震与测井工作伙伴</span></div>
       <span class="assistant-model" :title="llmModel || modelLabel">{{ modelLabel }}</span>
+      <button type="button" class="assistant-new-chat" aria-label="新建对话" title="新建对话" @click="startNewConversation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14Zm8 3v5m-2.5-2.5h5" /></svg></button>
       <button v-if="closable" type="button" class="assistant-close" aria-label="关闭慧眼助手" @click="emit('close')">×</button>
     </header>
 
@@ -160,7 +173,7 @@ watch(
               {{ executionLabel(execution) }}
             </li></ol>
           </details>
-          <button v-if="canOpenTaskResults && message.executions?.length && lastResult(message.executions)" class="assistant-result-link" type="button" :disabled="resultOpening || sending" @click="openLastResult(message.executions)">{{ resultOpening ? '正在打开…' : '查看结果 →' }}</button>
+          <button v-if="canOpenTaskResults && message.executions?.length && lastResult(message.executions)" class="assistant-result-link" type="button" :disabled="resultOpening || sending" @click="openLastResult(message.executions)">{{ resultOpening ? '正在打开…' : resultActionLabel(message.executions) }}</button>
           <nav v-if="message.actions?.length" class="strata-assistant-message-actions" aria-label="建议操作">
             <button v-for="action in message.actions" :key="action.target" type="button" @click="navigate(action.target)">{{ action.label }} <span>→</span></button>
           </nav>
@@ -194,6 +207,9 @@ watch(
 .strata-assistant-identity { min-width:0; flex:1; }
 .strata-assistant-identity h2 { margin:0; font-size:16px; line-height:1.3; }
 .strata-assistant-identity > span { color:var(--muted, #6f7e91); font-size:12px; }
+.assistant-new-chat { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; color:#627785; background:transparent; border:0; border-radius:8px; cursor:pointer; }
+.assistant-new-chat:hover { background:#edf3f5; }
+.assistant-new-chat svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
 .assistant-close { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; color:#627785; font-size:22px; background:transparent; border:0; border-radius:8px; cursor:pointer; }
 .assistant-close:hover { background:#edf3f5; }
 .assistant-model { max-width:115px; overflow:hidden; padding:3px 8px; color:#327277; font-size:12px; text-overflow:ellipsis; white-space:nowrap; background:#eef7f6; border-radius:999px; }

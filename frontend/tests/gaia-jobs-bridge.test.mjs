@@ -339,6 +339,7 @@ test("App forwards both assistant views through the existing Gaia workspace bar"
   const source = app.slice(start, app.indexOf("\nlet gaiaSelectionEpoch", start));
   const calls = [], busy = vue.ref(false), drawer = vue.ref(true);
   const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
+    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {},
     isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy, assistantResultError: vue.ref(""), assistantDrawerOpen: drawer,
     gaiaWorkspaceBar: vue.ref({ openAssistantResult: async value => { calls.push(value); return true; } }),
   });
@@ -375,6 +376,7 @@ test("failed result restoration keeps the assistant open and exposes a safe visi
   let release;
   const pending = new Promise(resolve => { release = resolve; });
   const module = evaluate(source + "\nexports.open = openAssistantTaskResult;", {}, {
+    beginAssistantResultNavigation: () => true, endAssistantResultNavigation() {},
     isGaiaEmbedded: true, isLegacyGaiaEmbedded: false, assistantResultOpening: busy,
     assistantResultError: resultError, assistantDrawerOpen: drawer,
     gaiaWorkspaceBar: vue.ref({ openAssistantResult: () => pending }),
@@ -469,7 +471,7 @@ test("completed P21 result opens the central visualization and retains both shel
     loadGaiaTaskChain: () => { throw new Error("P21 must not require a preparation chain"); },
   });
   assert.equal(await module.restore({ taskId: TASK }), true);
-  assert.equal(point.value, TASK); assert.equal(task.value, TASK);
+  assert.equal(point.value, TASK); assert.equal(task.value, "", "P21 selection must not replace the preparation task identity");
   assert.equal(view.value, "visualization"); assert.equal(drawer.value, true);
   assert.equal(ready.value, false, "HTML navigation is not successful drawing");
   assert.equal(urls[0].searchParams.get("job_ref"), J);
@@ -493,4 +495,16 @@ test("central canvas readiness requires exact origin, iframe and selected task",
   }
   module.receive(event); assert.equal(ready.value, true); assert.equal(calls.length, 1);
   assert.equal(calls[0][0].taskId, TASK); assert.equal(calls[0][1], "http://localhost");
+});
+
+
+test("new workflow identities clear a previously selected P21 view without changing workflow state", () => {
+  const app = read("App.vue"), start=app.indexOf("watch(taskId, (next, previous) => {");
+  const source=app.slice(start, app.indexOf("\nconst pointVisualizationUrl",start));
+  const task=vue.ref(PREP), point=vue.ref(TASK), ready=vue.ref(true);
+  evaluate(source, {}, {watch:vue.watch, taskId:task, pointVisualizationTaskId:point, pointVisualizationReady:ready});
+  task.value=SAMPLE;
+  assert.equal(point.value, ""); assert.equal(ready.value,false); assert.equal(task.value,SAMPLE);
+  assert.equal((app.match(/<GaiaWorkspaceBar ref="gaiaWorkspaceBar"/g)||[]).length,1);
+  assert.match(app, /<Teleport v-if="isGaiaEmbedded" defer/);
 });

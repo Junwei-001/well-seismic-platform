@@ -48,7 +48,9 @@ function harness(t, taskId = "task-a") {
   const component = scope.run(() => evaluate(componentScript + `
     exports.sendMessage = sendMessage;
     exports.openTaskResult = openTaskResult;
-    exports.bindings = { ...props, modelLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef, assistantTaskResultReference, openTaskResult, attachmentOpen, executionLabel, lastResult, openLastResult, handleInputKey, readableAnswer };
+    exports.startNewConversation = startNewConversation;
+    exports.resultActionLabel = resultActionLabel;
+    exports.bindings = { ...props, modelLabel, quickPrompts, messages, input, sending, navigate, sendMessage, messagesRef, inputRef, assistantTaskResultReference, openTaskResult, attachmentOpen, executionLabel, lastResult, openLastResult, handleInputKey, readableAnswer, resultActionLabel, startNewConversation };
     exports.inputRef = inputRef;
   `, { vue: componentVue, "../../api": api, "./conversationState": state, "../../assistantTaskResult": evaluate(taskReferenceSource, {}) }, {
     defineProps: () => props,
@@ -259,4 +261,57 @@ test("assistant replies hide machine identifiers while preserving the user's own
   assert.match(html, new RegExp(`User supplied ${token}`));
   assert.doesNotMatch(html, /任务 task_id/);
   assert.match(html, /任务 记录 相关记录，预览 已完成/);
+});
+
+
+test("new conversation keeps the task, aborts active work and ignores a late old reply", async (t) => {
+  const h = harness(t, "task-a");
+  const first = h.sendMessage("first question"); await flush();
+  h.calls[0].resolve(response("old answer", "old-session")); await first;
+  assert.equal(h.state.assistantConversationId.value, "old-session");
+  const old = h.sendMessage("still running"); await flush();
+  const oldSignal = h.calls[1].args[3];
+  h.state.assistantInput.value = "unfinished draft";
+  h.startNewConversation();
+  assert.equal(oldSignal.aborted, true);
+  assert.equal(h.state.assistantTaskId.value, "task-a");
+  assert.equal(h.state.assistantSending.value, false);
+  assert.equal(h.state.assistantInput.value, "");
+  assert.equal(h.state.assistantConversationId.value, undefined);
+  assert.equal(h.state.assistantMessages.value.length, 1);
+  const current = h.sendMessage("fresh question"); await flush();
+  assert.equal(h.calls[2].args[1], "task-a");
+  assert.equal(h.calls[2].args[2], undefined);
+  assert.notEqual(h.calls[2].args[4], h.calls[1].args[4]);
+  h.calls[1].resolve(response("late old answer", "stale-session")); await old;
+  assert.equal(h.state.assistantSending.value, true);
+  assert.ok(!h.state.assistantMessages.value.some(message => message.text === "late old answer"));
+  h.calls[2].resolve(response("fresh answer", "fresh-session")); await current;
+  assert.equal(h.state.assistantConversationId.value, "fresh-session");
+  assert.equal(h.state.assistantMessages.value.at(-1).text, "fresh answer");
+});
+
+test("P21 receipts label the result as 3D without changing generic result labels", (t) => {
+  const h = harness(t);
+  const base = { status: "completed", project_id: "hp_" + "a".repeat(32), task_id: "b".repeat(32), result: {} };
+  assert.equal(h.resultActionLabel([{ ...base, operation: "p21_reconstruction" }]), "查看三维结果 →");
+  assert.equal(h.resultActionLabel([{ ...base, operation: "visualization", result: { viewer_kind: "p21_query_points" } }]), "查看三维结果 →");
+  assert.equal(h.resultActionLabel([{ ...base, operation: "registration" }]), "查看结果 →");
+});
+
+
+test("owner-checked result navigation preserves the completed conversation while rebinding context", (t) => {
+  const h = harness(t);
+  h.state.assistantMessages.value.push({role:"assistant",text:"P21 已完成。"});
+  h.state.assistantConversationId.value="existing-conversation";
+  assert.equal(h.state.beginAssistantResultNavigation(),true);
+  h.state.bindAssistantTask("");
+  h.state.bindAssistantTask("result-task");
+  h.state.endAssistantResultNavigation();
+  assert.equal(h.state.assistantMessages.value.at(-1).text,"P21 已完成。");
+  assert.equal(h.state.assistantConversationId.value,"existing-conversation");
+  assert.equal(h.state.assistantTaskId.value,"result-task");
+  h.state.bindAssistantTask("unrelated-task");
+  assert.equal(h.state.assistantConversationId.value,undefined);
+  assert.notEqual(h.state.assistantMessages.value.at(-1).text,"P21 已完成。");
 });

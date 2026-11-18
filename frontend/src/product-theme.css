@@ -1894,3 +1894,88 @@ th { color: #526176; font-weight: 680; }
   .point-visualization-panel { min-height: 540px; }
   .point-visualization-frame { height: 70dvh; min-height: 540px; }
 }
+
+/* In a Gaia iframe the assistant occupies its own column; it must not cover
+   the workbench. Narrower screens retain the compact overlay drawer. */
+@media (min-width: 900px) {
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) {
+    grid-template-columns: 200px minmax(0, 1fr) clamp(320px, 30vw, 360px);
+    align-items: start;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .sidebar { grid-column: 1; }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .main-content {
+    grid-column: 2;
+    min-width: 0;
+    padding-right: 16px;
+    padding-left: 16px;
+    container: huiyan-main / inline-size;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .assistant-drawer {
+    position: sticky;
+    top: 0;
+    right: auto;
+    bottom: auto;
+    grid-column: 3;
+    width: auto;
+    height: 100dvh;
+    min-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) .assistant-drawer .strata-assistant-header { padding: 11px 10px; }
+}
+@media (min-width: 1100px) {
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) clamp(320px, 25vw, 360px);
+    align-items: start;
+  }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .sidebar { grid-column: 1; }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .main-content {
+    grid-column: 2;
+    min-width: 0;
+    padding-right: 16px;
+    padding-left: 16px;
+    container: huiyan-main / inline-size;
+  }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .assistant-drawer {
+    position: sticky;
+    top: 0;
+    right: auto;
+    bottom: auto;
+    grid-column: 3;
+    width: auto;
+    height: 100dvh;
+    min-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+@container huiyan-main (max-width: 700px) {
+  .preparation-navigation.three-stage {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .preparation-navigation.three-stage > b { display: none; }
+  .preparation-navigation.three-stage > button {
+    min-width: 0;
+    gap: 5px;
+    flex-wrap: wrap;
+    align-content: start;
+    padding: 8px 4px;
+  }
+  .preparation-navigation.three-stage button div { min-width: 0; }
+  .preparation-navigation.three-stage button strong,
+  .preparation-navigation.three-stage button small { white-space: normal; overflow-wrap: anywhere; }
+  .input-stage-panel { min-width: 0; padding: 16px; }
+  .section-panel { min-width: 0; }
+  .page-header h1 { white-space: normal; overflow-wrap: anywhere; }
+  .point-visualization-frame { min-width: 0; }
+}
+
+.app-shell.gaia-embedded .service-retry { flex: 0 0 auto; white-space: nowrap; }
+@media (min-width: 1100px) {
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) .topbar {
+    right: clamp(320px, 25vw, 360px);
+  }
+}

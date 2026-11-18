@@ -61,6 +61,7 @@ import GaiaWorkspaceBar from "./components/workflow/GaiaWorkspaceBar.vue";
 import { isGaiaEmbedded, isLegacyGaiaEmbedded, nativeApiUrl } from "./gaiaEmbed";
 import type { AssistantTaskReference } from "./assistantTaskResult";
 import { loadGaiaTaskChain } from "./gaiaTaskRestore";
+import { beginAssistantResultNavigation, endAssistantResultNavigation } from "./components/assistant/conversationState";
 import LayerPulseWorkbench from "./components/layerpulse/LayerPulseWorkbench.vue";
 import ModelCenter from "./components/models/ModelCenter.vue";
 import PostFusionInferenceDialog from "./components/workflow/PostFusionInferenceDialog.vue";
@@ -7687,6 +7688,12 @@ const gaiaWorkspaceBar = ref<InstanceType<typeof GaiaWorkspaceBar> | null>(null)
 const pointVisualizationTaskId = ref("");
 const pointVisualizationFrame = ref<HTMLIFrameElement | null>(null);
 const pointVisualizationReady = ref(false);
+watch(taskId, (next, previous) => {
+  if (next !== previous && next !== pointVisualizationTaskId.value) {
+    pointVisualizationTaskId.value = "";
+    pointVisualizationReady.value = false;
+  }
+}, { flush: "sync" });
 const pointVisualizationUrl = computed(() => pointVisualizationTaskId.value
   ? nativeApiUrl(`/api/v1/tasks/${encodeURIComponent(pointVisualizationTaskId.value)}/${isGaiaEmbedded ? "visualization" : "standard-results/visualization"}`)
   : "");
@@ -7700,6 +7707,7 @@ const assistantResultOpening = ref(false);
 const assistantResultError = ref("");
 async function openAssistantTaskResult(reference: AssistantTaskReference) {
   if (isLegacyGaiaEmbedded || assistantResultOpening.value || (isGaiaEmbedded && !gaiaWorkspaceBar.value)) return;
+  if (!beginAssistantResultNavigation()) return;
   assistantResultOpening.value = true;
   assistantResultError.value = "";
   try {
@@ -7710,7 +7718,7 @@ async function openAssistantTaskResult(reference: AssistantTaskReference) {
     else assistantResultError.value = "无法打开任务结果，请确认任务已完成且属于当前账号，或刷新后重试。";
   } catch {
     assistantResultError.value = "暂时无法打开任务结果，请稍后重试。";
-  } finally { assistantResultOpening.value = false; }
+  } finally { endAssistantResultNavigation(); assistantResultOpening.value = false; }
 }
 
 let gaiaSelectionEpoch = 0;
@@ -7748,7 +7756,6 @@ async function restoreGaiaResult(value: { taskId: string }) {
     if (prediction?.model_id === "sixtrack_reconstruction_p21") {
       pointVisualizationTaskId.value = selected.task_id;
       pointVisualizationReady.value = false;
-      taskId.value = selected.task_id;
       activeView.value = "visualization";
       sidebarDirectoryLevel.value = "primary";
       assistantDrawerOpen.value = true;
@@ -7758,9 +7765,9 @@ async function restoreGaiaResult(value: { taskId: string }) {
       window.history.replaceState(null, "", url);
       return true;
     }
-    pointVisualizationTaskId.value = "";
     const chain = await loadGaiaTaskChain(value.taskId, (id) => id === selected.task_id ? Promise.resolve(selected) : getTask(id), current);
     if (!chain || !current()) return false;
+    pointVisualizationTaskId.value = "";
     // Owned tasks are already durable; embedding only restores the local view.
     restoreCompletedDataPreparationTask(chain.preparation, { snapshotId: chain.snapshotId, persistPathConfig: false, persistActiveSnapshot: false, rememberTask: false, offerRuntimeReview: false });
     if (chain.registration) installCompletedWorkflowTask(chain.registration, chain.registration.result as WorkflowResult, { persistActiveSnapshot: false });
@@ -7775,6 +7782,8 @@ async function restoreGaiaResult(value: { taskId: string }) {
 }
 
 onMounted(async () => {
+  const requestedVisualization = window.location.hash === "#visualization"
+    ? new URLSearchParams(window.location.search).get("task_id") || "" : "";
   window.addEventListener("message", onPointVisualizationReady);
   if (isGaiaEmbedded) {
     componentUnmounted = false;
@@ -7873,6 +7882,10 @@ onMounted(async () => {
   void refreshSystemCacheStatus();
   if (activeView.value === "evaluation") void refreshAcceptanceSnapshot();
 
+  if (/^[0-9a-f]{32}$/.test(requestedVisualization)) {
+    await restoreGaiaResult({ taskId: requestedVisualization });
+    return;
+  }
   if (freshSessionRequested) {
     replayInitialViewIntent();
     return;
@@ -8109,7 +8122,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div :class="['app-shell', { 'landing-shell': activeView === 'overview', 'gaia-embedded': isGaiaEmbedded }]">
+  <div :class="['app-shell', { 'landing-shell': activeView === 'overview', 'gaia-embedded': isGaiaEmbedded, 'assistant-open': assistantDrawerOpen && activeView !== 'assistant' }]">
     <aside v-if="activeView !== 'overview'" class="sidebar">
       <button type="button" class="brand brand-button" title="返回首屏" @click="selectView('overview')">
         <svg class="brand-mark" viewBox="0 0 160 160" aria-hidden="true">
@@ -10134,7 +10147,7 @@ onBeforeUnmount(() => {
       <FloatingAssistant
         v-show="activeView === 'assistant'"
         :visible="activeView === 'assistant'"
-        :task-id="taskId"
+        :task-id="pointVisualizationTaskId || taskId"
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
         :llm-model="capabilities?.assistant?.display_label ?? capabilities?.assistant?.model ?? capabilities?.llm.model"
@@ -10146,7 +10159,8 @@ onBeforeUnmount(() => {
         @close="assistantDrawerOpen = false"
       >
         <template #attachments>
-          <GaiaWorkspaceBar v-if="isGaiaEmbedded && activeView === 'assistant'" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+          <section v-if="isGaiaEmbedded" id="assistant-page-attachments" aria-label="文件与任务"></section>
+          <button v-else class="secondary-button" type="button" @click="selectView('preparation')">添加本地数据</button>
         </template>
       </FloatingAssistant>
     </main>
@@ -10172,7 +10186,7 @@ onBeforeUnmount(() => {
       <FloatingAssistant
         closable
         :visible="assistantDrawerOpen"
-        :task-id="taskId"
+        :task-id="pointVisualizationTaskId || taskId"
         context-label="地层慧眼本地工作区"
         :llm-available="Boolean(capabilities?.assistant?.available ?? capabilities?.llm.available)"
         :llm-model="capabilities?.assistant?.display_label ?? capabilities?.assistant?.model ?? capabilities?.llm.model"
@@ -10184,10 +10198,15 @@ onBeforeUnmount(() => {
         @close="assistantDrawerOpen = false"
       >
         <template #attachments>
-          <GaiaWorkspaceBar v-if="isGaiaEmbedded" ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+          <section v-if="isGaiaEmbedded" id="assistant-drawer-attachments" aria-label="文件与任务"></section>
+          <button v-else class="secondary-button" type="button" @click="selectView('preparation')">添加本地数据</button>
         </template>
       </FloatingAssistant>
     </aside>
+
+    <Teleport v-if="isGaiaEmbedded" defer :to="activeView === 'assistant' ? '#assistant-page-attachments' : '#assistant-drawer-attachments'">
+      <GaiaWorkspaceBar ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+    </Teleport>
 
     <dialog
       ref="runtimeContractDialog"

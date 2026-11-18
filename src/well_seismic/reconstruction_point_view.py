@@ -46,7 +46,7 @@ def render_query_points(path: Path, *, archived: bool = False) -> str:
 <header class="p21-head"><div><p class="p21-eyebrow">HUIYAN · 3D RECONSTRUCTION</p><h2 id="p21-title">P21 三维条件属性重建</h2><p class="p21-subtitle">查询点预测结果 · 拖动图形旋转视角</p></div>
 <details class="p21-scope"><summary aria-label="查看数据范围说明">ⓘ<span class="p21-scope-body p21-scope-preview" aria-hidden="true">仅显示原开发折查询点；坐标按训练支撑尺度归一化，无量纲。颜色表示预测值，目标单位沿用原研究档案。</span></summary><div class="p21-scope-body">仅显示原开发折查询点，不代表完整三维体或新工区验证。X、Y、Z 为按训练支撑尺度归一化的坐标，无量纲；不是地理坐标或米制深度。颜色表示预测值，目标单位沿用原研究档案。</div></details></header>
 <div class="p21-kpis"><span class="p21-kpi">查询点数 <strong id="point-count"></strong></span><span class="p21-kpi">预测区间 <strong id="point-range"></strong></span>__ARCHIVE_BADGE__</div>
-<div class="p21-toolbar"><div class="p21-controls" role="group" aria-label="选择点云投影视角">
+<div class="p21-toolbar"><div class="p21-controls" id="point-view" role="group" aria-label="选择点云投影视角">
 <button type="button" data-point-view="3d" aria-pressed="true">三维斜视</button><button type="button" data-point-view="xy" aria-pressed="false">X–Y 平面</button><button type="button" data-point-view="xz" aria-pressed="false">X–Z 平面</button><button type="button" data-point-view="yz" aria-pressed="false">Y–Z 平面</button></div><button type="button" class="p21-reset" id="point-reset">重置视角</button></div>
 <div class="p21-plot"><div class="p21-canvas-wrap"><canvas id="point-canvas" width="900" height="520" aria-label="标准化坐标查询点彩色投影；可拖动旋转、悬停查询数据" role="img"></canvas></div>
 <div class="p21-legend" aria-label="预测值颜色图例，蓝色为低值，红色为高值"><div class="p21-colorbar" aria-hidden="true"></div><div class="p21-ticks"><span id="point-max"></span><span id="point-mid"></span><span id="point-min"></span></div></div></div>
@@ -68,11 +68,32 @@ document.getElementById('point-range').textContent=`${number(low)} – ${number(
 document.getElementById('point-max').textContent=number(high);document.getElementById('point-mid').textContent=number(low/2+high/2);document.getElementById('point-min').textContent=number(low);
 let yaw=.6,pitch=-.4,view='3d',projected=[],drag=null,w=900,h=520,readyNotified=false;
 function setView(next){view=next;buttons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.pointView===view)));draw();}
-function project(point){
- let [x,y,z]=point.slice(0,3).map((v,k)=>(v/unitScale-center[k])/span),px,py,depth=0;
- if(view==='xy'){px=x;py=y;depth=z;}else if(view==='xz'){px=x;py=z;depth=y;}else if(view==='yz'){px=y;py=z;depth=x;}
- else{const rx=x*Math.cos(yaw)+z*Math.sin(yaw),rz=-x*Math.sin(yaw)+z*Math.cos(yaw);px=rx;py=y*Math.cos(pitch)-rz*Math.sin(pitch);depth=y*Math.sin(pitch)+rz*Math.cos(pitch);}
- const scale=Math.min(w*.72,h*.82);return{x:w/2+px*scale,y:h/2-py*scale,depth};
+let fittedScale=1,fittedX=0,fittedY=0;
+function rawProject(point){
+ const [x,y,z]=point.slice(0,3).map((v,k)=>(v/unitScale-center[k])/span);
+ if(view==='xy')return{x,y,depth:z};
+ if(view==='xz')return{x,y:z,depth:y};
+ if(view==='yz')return{x:y,y:z,depth:x};
+ const rx=x*Math.cos(yaw)+z*Math.sin(yaw),rz=-x*Math.sin(yaw)+z*Math.cos(yaw);
+ return{x:rx,y:y*Math.cos(pitch)-rz*Math.sin(pitch),depth:y*Math.sin(pitch)+rz*Math.cos(pitch)};
+}
+function fitFrame(){
+ const corners=[];
+ for(let i=0;i<8;i++)corners.push(rawProject([0,1,2].map(k=>(i&(1<<k))?hi[k]:lo[k])));
+ const xmin=Math.min(...corners.map(p=>p.x)),xmax=Math.max(...corners.map(p=>p.x)),
+       ymin=Math.min(...corners.map(p=>p.y)),ymax=Math.max(...corners.map(p=>p.y));
+ ctx.font='12px system-ui,sans-serif';
+ const longest=Math.max(...lo.concat(hi).map(v=>ctx.measureText(Number(v).toPrecision(3)).width));
+ const padX=Math.min(w*.3,Math.max(30,longest+14)),padY=Math.min(h*.3,30),
+       dx=xmax-xmin,dy=ymax-ymin,
+       sx=dx>0?(w-2*padX)/dx:Infinity,sy=dy>0?(h-2*padY)/dy:Infinity;
+ fittedScale=Math.min(sx,sy);if(!Number.isFinite(fittedScale))fittedScale=1;
+ fittedX=w/2-(xmin+xmax)/2*fittedScale;fittedY=h/2+(ymin+ymax)/2*fittedScale;
+}
+function project(point){const p=rawProject(point);return{x:fittedX+p.x*fittedScale,y:fittedY-p.y*fittedScale,depth:p.depth};}
+function labelPosition(text,x,y){
+ const width=ctx.measureText(text).width;
+ return{x:Math.max(2,Math.min(Math.max(2,w-width-2),x)),y:Math.max(15,Math.min(h-3,y))};
 }
 function line(a,b){const x=project(a),y=project(b);ctx.moveTo(x.x,x.y);ctx.lineTo(y.x,y.y);}
 function frame(){
@@ -82,12 +103,12 @@ function frame(){
   from[other[0]]=a?hi[other[0]]:lo[other[0]];from[other[1]]=b?hi[other[1]]:lo[other[1]];to.splice(0,3,...from);to[axis]=hi[axis];line(from,to);
  }ctx.stroke();ctx.globalAlpha=1;ctx.fillStyle=getComputedStyle(root).getPropertyValue('--p21-axis').trim();ctx.font='12px system-ui,sans-serif';
  for(let axis=0;axis<3;axis++){
-  for(const t of [0,.5,1]){if(t===0 && axis>0)continue;const point=lo.slice();point[axis]=lo[axis]*(1-t)+hi[axis]*t;const pos=project(point);const label=Number(point[axis]).toPrecision(3);ctx.strokeStyle=getComputedStyle(root).getPropertyValue('--p21-canvas').trim();ctx.lineWidth=4;ctx.strokeText(label,pos.x+5,pos.y-6);ctx.fillText(label,pos.x+5,pos.y-6);}
-  const end=lo.slice();end[axis]=hi[axis];const pos=project(end);ctx.font='bold 14px system-ui,sans-serif';ctx.fillText('XYZ'[axis],pos.x+8,pos.y+13);ctx.font='12px system-ui,sans-serif';
+  for(const t of [0,.5,1]){if(t===0 && axis>0)continue;const point=lo.slice();point[axis]=lo[axis]*(1-t)+hi[axis]*t;const pos=project(point);const label=Number(point[axis]).toPrecision(3),at=labelPosition(label,pos.x+5,pos.y-6);ctx.strokeStyle=getComputedStyle(root).getPropertyValue('--p21-canvas').trim();ctx.lineWidth=4;ctx.strokeText(label,at.x,at.y);ctx.fillText(label,at.x,at.y);}
+  const end=lo.slice();end[axis]=hi[axis];const pos=project(end);ctx.font='bold 14px system-ui,sans-serif';const at=labelPosition('XYZ'[axis],pos.x+8,pos.y+13);ctx.fillText('XYZ'[axis],at.x,at.y);ctx.font='12px system-ui,sans-serif';
  }
 }
 function draw(){
- if(!ctx)return;ctx.clearRect(0,0,w,h);projected=data.map((p,index)=>({...project(p),index}));
+ if(!ctx)return;ctx.clearRect(0,0,w,h);fitFrame();projected=data.map((p,index)=>({...project(p),index}));
  projected.sort((a,b)=>a.depth-b.depth).forEach(p=>{const t=high>low?(data[p.index][3]/valueScale-valueLow)/(valueHigh-valueLow):.5;
   ctx.fillStyle=`hsl(${240*(1-t)} 75% 43%)`;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,Math.min(3.5,w/240)),0,2*Math.PI);ctx.fill();});frame();
  if(!readyNotified){readyNotified=true;document.dispatchEvent(new CustomEvent('huiyan:point-viewer-ready'));}

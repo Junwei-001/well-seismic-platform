@@ -13,9 +13,12 @@ class Controls(HTMLParser):
         super().__init__()
         self.views = {}
         self.has_scope = False
+        self.has_view_group = False
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == 'div' and attrs.get('id') == 'point-view' and attrs.get('role') == 'group':
+            self.has_view_group = True
         if tag == 'button' and 'data-point-view' in attrs:
             self.views[attrs['data-point-view']] = attrs.get('aria-pressed')
         if tag == 'summary' and attrs.get('aria-label') == '查看数据范围说明':
@@ -33,6 +36,7 @@ def test_viewer_preserves_data_and_discloses_real_scope(tmp_path):
     controls = Controls()
     controls.feed(html)
     assert controls.views == {'3d': 'true', 'xy': 'false', 'xz': 'false', 'yz': 'false'}
+    assert controls.has_view_group
     assert controls.has_scope
     assert 'data-point-viewer' in html
     assert html.count("document.dispatchEvent(new CustomEvent('huiyan:point-viewer-ready'))") == 1
@@ -79,7 +83,7 @@ function execute(fail) {
   let events = 0, onresize;
   const noop = () => {};
   const ctx = {clearRect:noop, beginPath:noop, moveTo:noop, lineTo:noop,
-    stroke:noop, fillText:noop, strokeText:noop, fill:noop, setTransform:noop,
+    stroke:noop, fillText:noop, strokeText:noop, fill:noop, setTransform:noop, measureText:(s)=>({width:String(s).length*7}),
     arc:() => {if (fail) throw Error('draw failed');}};
   const scope = {dataset:{}, addEventListener:noop};
   const root = {querySelectorAll:()=>[], querySelector:()=>scope};
@@ -98,6 +102,69 @@ function execute(fail) {
 }
 const ok=execute(false), failed=execute(true);
 if(ok.events!==1 || ok.threw || failed.events!==0 || !failed.threw) process.exit(1);
+'''
+    result = subprocess.run(['node', '-e', runner, json.dumps(script)],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_projected_frame_fits_rotations_planar_views_and_narrow_canvas(tmp_path):
+    import subprocess
+
+    path = tmp_path / 'anisotropic.npz'
+    xyz = np.array([[-3., -.2, -20.], [5., .5, 40.], [1., .1, 8.]])
+    np.savez(path, query_coordinate=xyz, prediction=np.array([.2, .3, .25]))
+    script = render_query_points(path).split('<script>', 1)[1].split('</script>', 1)[0]
+    runner = r'''
+const vm = require('node:vm'), script=JSON.parse(process.argv[1]);
+let width=900,height=350, frame=[],labels=[],circles=[],last=null,ready=0;
+const noop=()=>{};
+const textWidth=s=>String(s).length*7;
+const ctx={clearRect:()=>{frame=[];labels=[];circles=[];},beginPath:noop,
+ moveTo:(x,y)=>{last=[x,y];},lineTo:(x,y)=>{frame.push([last,[x,y]]);},stroke:noop,
+ fillText:(s,x,y)=>labels.push([String(s),x,y,textWidth(s)]),strokeText:noop,fill:noop,
+ setTransform:noop,measureText:s=>({width:textWidth(s)}),arc:(x,y,r)=>circles.push([x,y,r])};
+const handlers={}, canvas={getContext:()=>ctx, closest:()=>root,
+ addEventListener:(name,fn)=>handlers[name]=fn,setPointerCapture:noop,
+ getBoundingClientRect:()=>({width,height,left:0,top:0})};
+const scope={dataset:{},addEventListener:noop};
+const views=['3d','xy','xz','yz'].map(view=>({dataset:{pointView:view},
+ setAttribute:noop,addEventListener:(event,fn)=>handlers['view:'+view]=fn}));
+const root={querySelectorAll:()=>views,querySelector:()=>scope};
+const elements={'point-canvas':canvas,'point-reset':{addEventListener:(event,fn)=>handlers.reset=fn}};
+const doc={getElementById:id=>elements[id]||(elements[id]={addEventListener:noop}),
+ dispatchEvent:event=>{if(event.type==='huiyan:point-viewer-ready')ready++;}};
+const window={devicePixelRatio:1,addEventListener:(n,f)=>{if(n==='resize')handlers.resize=f;},
+ matchMedia:()=>({addEventListener:noop})};
+vm.runInNewContext(script,{document:doc,window,CustomEvent:class {constructor(type){this.type=type;}},
+ getComputedStyle:()=>({getPropertyValue:()=> '#123456'})});
+function check(name){
+ if(frame.length!==12 || labels.length<8 || circles.length!==3 || ready!==1) throw Error(name+': missing draw');
+ for(const [a,b] of frame)for(const [x,y] of [a,b])
+   if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>width||y<0||y>height)throw Error(name+': frame clipped');
+ for(const [s,x,y,t] of labels)
+   if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x+t>width||y<12||y>height)throw Error(name+': label clipped '+s);
+ for(const [x,y,r] of circles)
+   if(x-r<0||x+r>width||y-r<0||y+r>height)throw Error(name+': point clipped');
+ if(!['X','Y','Z'].every(axis=>labels.some(row=>row[0]===axis)))throw Error(name+': missing axis');
+}
+check('initial');
+for (const size of [[240,320],[540,170],[900,350]]) {
+ [width,height]=size;handlers.resize();check('resize');
+ for (const view of ['xy','xz','yz','3d']) {handlers['view:'+view]();check(view);
+  if(view==='xy') {
+   const horizontal=frame.map(([a,b])=>Math.abs(b[0]-a[0])).filter(x=>x>1e-8);
+   const vertical=frame.map(([a,b])=>Math.abs(b[1]-a[1])).filter(x=>x>1e-8);
+   const observed=horizontal[0]/vertical[0];
+   if(Math.abs(observed-(8/.7))>1e-7)throw Error('physical aspect ratio changed');
+  }
+ }
+ handlers.pointerdown({clientX:0,clientY:0,pointerId:1});
+ for(const p of [[130,80],[-210,230],[450,-270],[-450,-500],[0,0]]) {
+  handlers.pointermove({clientX:p[0],clientY:p[1]});check('rotation');
+ }
+ handlers.pointerup();
+}
 '''
     result = subprocess.run(['node', '-e', runner, json.dumps(script)],
                             capture_output=True, text=True, check=False)

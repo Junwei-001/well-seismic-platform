@@ -34,21 +34,43 @@ interface AssistantRequest {
 }
 
 let generation = 0;
+let resultNavigation = false;
 let activeRequest: AssistantRequest | undefined;
 let uncertainRequest: { signature: string; requestId: string } | undefined;
 
-export function bindAssistantTask(taskId: string): void {
-  if (assistantTaskId.value === taskId) return;
-  const hadConversation = assistantMessages.value.length > 1 || assistantSending.value;
+/** Start a fresh conversation without changing the current task binding. */
+export function resetConversation(): void {
   generation += 1;
   activeRequest?.controller.abort();
   activeRequest = undefined;
   uncertainRequest = undefined;
-  assistantTaskId.value = taskId;
   assistantConversationId.value = undefined;
   assistantSending.value = false;
   assistantInput.value = "";
   assistantMessages.value = initialMessages();
+}
+
+/** Presentation navigation of an already owner-checked result keeps this conversation. */
+export function beginAssistantResultNavigation(): boolean {
+  if (assistantSending.value || resultNavigation) return false;
+  resultNavigation = true;
+  return true;
+}
+export function endAssistantResultNavigation(): void { resultNavigation = false; }
+
+export function bindAssistantTask(taskId: string): void {
+  if (assistantTaskId.value === taskId) return;
+  if (resultNavigation && !assistantSending.value) {
+    generation += 1;
+    activeRequest?.controller.abort();
+    activeRequest = undefined;
+    uncertainRequest = undefined;
+    assistantTaskId.value = taskId;
+    return;
+  }
+  const hadConversation = assistantMessages.value.length > 1 || assistantSending.value;
+  assistantTaskId.value = taskId;
+  resetConversation();
   if (hadConversation) {
     assistantMessages.value.push({
       role: "assistant",

@@ -2,10 +2,13 @@
 
 import io
 import json
+import urllib.error
+from dataclasses import replace
 from unittest.mock import Mock, patch
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from well_seismic.gaia_agent import chat_with_huiyan_agent
 from well_seismic.gaia_minimax import GaiaMiniMaxError, GaiaMiniMaxSettings
@@ -430,3 +433,105 @@ def test_model_reply_keeps_prose_without_echoing_receipt_ids(tmp_path):
     ]):
         result = run(h)
     assert result["answer"] == "已查到工区。可继续导入测井数据。"
+
+
+def test_corrected_same_page_retry_uses_distinct_operation_ids_and_stays_successful(tmp_path, deepseek):
+    h = harness(tmp_path)
+    h.catalog.return_value["actions"][0]["parameters"]["properties"] = {
+        "offset": {"type": "integer", "minimum": 0},
+    }
+    seen = set()
+
+    def execute(subject, operation, arguments, operation_id):
+        if operation_id in seen:
+            raise HTTPException(409, "operation already registered")
+        seen.add(operation_id)
+        if arguments.get("offset") == -1:
+            raise HTTPException(422, "invalid offset")
+        return h.execute.return_value
+
+    h.execute.side_effect = execute
+    request = {
+        "subject": SUBJECT, "question": "查询工区", "context": {},
+        "conversation_id": None, "harness": h, "request_id": uuid4(),
+    }
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            openai_response(calls=[openai_call("project_list", '{"offset":-1}', "call_0")]),
+            openai_response(calls=[openai_call("project_list", '{}', "call_0")]),
+            openai_response("已查询，当前账号下还没有工区。"),
+        ]
+        result = chat_with_huiyan_agent(deepseek, **request)
+        replay = chat_with_huiyan_agent(deepseek, **request)
+    assert result["answer"] == "已查询，当前账号下还没有工区。"
+    assert replay == result
+    assert [item["status"] for item in result["executions"]] == ["failed", "completed"]
+    assert len(seen) == 2 and h.execute.call_count == 2
+
+
+def test_successful_query_never_masks_invalid_arguments_for_another_task(tmp_path):
+    h = harness(tmp_path)
+    h.catalog.return_value["actions"] = [{
+        "name": "task_status", "description": "Read an owned task",
+        "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}},
+    }]
+    h.execute.side_effect = [
+        HTTPException(422, "bad arguments"),
+        {
+            "operation": "task_status", "status": "completed",
+            "task_id": "c" * 32, "result": {"task": {"status": "completed"}},
+        },
+    ]
+    with patch("well_seismic.gaia_agent.request_minimax_message", side_effect=[
+        response([call("task_status", {"task_id": "b" * 32, "unexpected": True})], "tool_use"),
+        response([call("task_status", {"task_id": "c" * 32}, "call2")], "tool_use"),
+        text("两个任务都查到了。"),
+    ]):
+        result = run(h)
+    assert "当前任务未能完成" in result["answer"]
+    assert "两个任务都查到了" not in result["answer"]
+    assert [item["status"] for item in result["executions"]] == ["failed", "completed"]
+
+
+def test_clean_reply_translates_fields_without_removing_scope_or_facts(tmp_path):
+    h = harness(tmp_path)
+    with patch("well_seismic.gaia_agent.request_minimax_message", side_effect=[
+        text("列表 truncated，还有更多版本可继续查询。registration 已完成。P21 preview 已生成。"
+             "viewer_available: false，窗口刷新后可重试。"),
+    ]):
+        answer = run(h)["answer"]
+    assert answer == (
+        "列表 未列全，还有更多版本可继续查询。井震标定 已完成。P21 预览 已生成。"
+        "结果暂不可查看，窗口刷新后可重试。"
+    )
+
+
+def test_openai_interrupted_turn_keeps_ledger_without_synthetic_provider_history(tmp_path, deepseek):
+    h = harness(tmp_path)
+    thinking = replace(deepseek, extra_body={"thinking": {"type": "enabled"}})
+
+    def ask(question, conversation_id=None):
+        return chat_with_huiyan_agent(
+            thinking, subject=SUBJECT, question=question, context={},
+            conversation_id=conversation_id, harness=h,
+        )
+
+    with patch("well_seismic.gaia_minimax.urllib.request.build_opener") as opener:
+        opener.return_value.open.side_effect = [
+            openai_response("可以查询工区。", reasoning="first-provider-reasoning"),
+            openai_response(calls=[openai_call("project_list", "{}", "call1")], reasoning="interrupted-reasoning"),
+            urllib.error.HTTPError(thinking.endpoint, 503, "unavailable", {}, None),
+            openai_response("当前可继续查询。", reasoning="follow-up-provider-reasoning"),
+        ]
+        first = ask("能查询工区吗")
+        conversation = UUID(first["conversation_id"])
+        interrupted = ask("查询工区", conversation)
+        follow_up = ask("现在可以继续吗", conversation)
+    assert interrupted["warning"] and interrupted["executions"] == [h.execute.return_value]
+    assert follow_up["answer"] == "当前可继续查询。"
+    request = json.loads(opener.return_value.open.call_args.args[0].data)
+    assert [message["role"] for message in request["messages"]] == [
+        "system", "user", "assistant", "user",
+    ]
+    assert request["messages"][2]["reasoning_content"] == "first-provider-reasoning"
+    assert "interrupted-reasoning" not in str(request)

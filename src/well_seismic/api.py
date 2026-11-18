@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import threading
 import uuid
 from collections import Counter, defaultdict, deque
@@ -11951,7 +11952,7 @@ def _point_task_archived(task_id: str) -> bool:
             version = _huiyan_harness.dvc.get(row["subject"], receipt["project_id"], receipt["revision_id"])
             if version.get("status") == "archived":
                 return True
-    except (AttributeError, KeyError, OSError, ValueError, RuntimeError):
+    except (AttributeError, KeyError, OSError, ValueError, RuntimeError, sqlite3.Error):
         pass
     return False
 
