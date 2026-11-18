@@ -1,4 +1,5 @@
-import { nativeApiUrl } from "./gaiaEmbed";
+import { nativeApiUrl, isGaiaEmbedded } from "./gaiaEmbed";
+import { localWorkbenchProjectId } from "./localWorkbenchState";
 
 export interface SurveyAttestationPayload {
   contract_version: "well-seismic.survey-attestation.v1";
@@ -1915,7 +1916,7 @@ export function chatWithAssistant(message: string, taskId?: string, conversation
   return jsonRequest("/api/v1/assistant/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, task_id: taskId || null, conversation_id: conversationId || null, request_id: requestId || crypto.randomUUID() }),
+    body: JSON.stringify({ message, project_id: isGaiaEmbedded ? undefined : localWorkbenchProjectId.value || undefined, task_id: taskId || null, conversation_id: conversationId || null, request_id: requestId || crypto.randomUUID() }),
     signal,
     timeoutMs: 270_000,
   });

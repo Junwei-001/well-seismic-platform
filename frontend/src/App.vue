@@ -57,6 +57,7 @@ import {
 } from "./api";
 import heroInterpretationCenterImage from "./assets/首屏_井震智能解释中心.jpg";
 import FloatingAssistant from "./components/assistant/FloatingAssistant.vue";
+import LocalProjectAssets from "./components/workflow/LocalProjectAssets.vue";
 import LocalDataUpload from "./components/workflow/LocalDataUpload.vue";
 import GaiaWorkspaceBar from "./components/workflow/GaiaWorkspaceBar.vue";
 import { isGaiaEmbedded, isLegacyGaiaEmbedded, nativeApiUrl } from "./gaiaEmbed";
@@ -10194,8 +10195,7 @@ onBeforeUnmount(() => {
         @close="assistantDrawerOpen = false"
       >
         <template #attachments>
-          <section v-if="isGaiaEmbedded" id="assistant-page-attachments" aria-label="文件与任务"></section>
-          <button v-else class="secondary-button" type="button" @click="selectView('preparation')">添加本地数据</button>
+          <section id="assistant-page-attachments" aria-label="文件与任务"></section>
         </template>
       </FloatingAssistant>
     </main>
@@ -10233,14 +10233,14 @@ onBeforeUnmount(() => {
         @close="assistantDrawerOpen = false"
       >
         <template #attachments>
-          <section v-if="isGaiaEmbedded" id="assistant-drawer-attachments" aria-label="文件与任务"></section>
-          <button v-else class="secondary-button" type="button" @click="selectView('preparation')">添加本地数据</button>
+          <section id="assistant-drawer-attachments" aria-label="文件与任务"></section>
         </template>
       </FloatingAssistant>
     </aside>
 
-    <Teleport v-if="isGaiaEmbedded" defer :to="activeView === 'assistant' ? '#assistant-page-attachments' : '#assistant-drawer-attachments'">
-      <GaiaWorkspaceBar ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
+    <Teleport defer :to="activeView === 'assistant' ? '#assistant-page-attachments' : '#assistant-drawer-attachments'">
+      <LocalProjectAssets v-if="!isGaiaEmbedded" @project-selected="clearGaiaResult(); selectView('preparation')" />
+      <GaiaWorkspaceBar v-else ref="gaiaWorkspaceBar" :restore-result="restoreGaiaResult" @loading="clearGaiaResult" />
     </Teleport>
 
     <dialog

@@ -505,8 +505,10 @@ test("new workflow identities clear a previously selected P21 view without chang
   evaluate(source, {}, {watch:vue.watch, taskId:task, pointVisualizationTaskId:point, pointVisualizationReady:ready});
   task.value=SAMPLE;
   assert.equal(point.value, ""); assert.equal(ready.value,false); assert.equal(task.value,SAMPLE);
-  assert.equal((app.match(/<GaiaWorkspaceBar ref="gaiaWorkspaceBar"/g)||[]).length,1);
-  assert.match(app, /<Teleport v-if="isGaiaEmbedded" defer/);
+  assert.equal((app.match(/<GaiaWorkspaceBar[^>]*ref="gaiaWorkspaceBar"/g)||[]).length,1);
+  assert.match(app, /<Teleport defer/);
+  assert.match(app, /<LocalProjectAssets v-if="!isGaiaEmbedded"/);
+  assert.match(app, /<GaiaWorkspaceBar v-else ref=/);
 });
 
 test("a deep link cannot substitute a task from another job", async () => {

@@ -37,6 +37,7 @@ class StoreDouble:
         assert all(Path(path).is_file() for path in files.values())
         return {
             "revision_id": "dv_" + uuid.uuid4().hex,
+            "status": "archived",
             "files": list(files),
             "metadata": metadata,
         }
@@ -558,3 +559,41 @@ def test_restore_preserves_all_sealed_asset_roles(harness, tmp_path):
     assert all(
         harness.asset(OWNER, pid, a["id"])["project_id"] == pid for a in restored
     )
+
+
+def test_local_project_upload_bridge_uses_real_parser_owner_and_archive(harness):
+    from well_seismic.local_workbench import build_local_workbench_router, LOCAL_WORKBENCH_SUBJECT
+    app = FastAPI(); app.include_router(build_local_workbench_router(harness))
+    with TestClient(app, client=('127.0.0.1', 50000)) as client:
+        operation_id = str(uuid.uuid4())
+        payload = {'operation':'project_create','operation_id':operation_id,'arguments':{'name':'Local LAS demo'}}
+        created = client.post('/api/v1/workbench/actions', json=payload)
+        assert created.status_code == 200
+        pid = created.json()['project_id']
+        assert client.post('/api/v1/workbench/actions', json=payload).json() == created.json()
+        content = (ROOT/'tests/fixtures/gaia_synthetic.las').read_bytes().replace(b'G/C3',b'G/CM3')
+        uploaded = client.post(f'/api/v1/workbench/projects/{pid}/assets/log?filename=local.las',content=content)
+        assert uploaded.status_code == 201
+        receipt = uploaded.json()
+        assert receipt['asset']['project_id'] == pid
+        assert receipt['versioning']['status'] == 'archived'
+        asset = harness.asset(LOCAL_WORKBENCH_SUBJECT, pid, receipt['asset']['id'])
+        assert Path(asset['path']).read_bytes() == content
+        # Same bytes/name/project reuse the sealed upload rather than duplicate.
+        assert client.post(f'/api/v1/workbench/projects/{pid}/assets/log?filename=local.las',content=content).json() == receipt
+        foreign, _ = project_asset(harness)
+        assert client.post(f'/api/v1/workbench/projects/{foreign}/assets/log?filename=local.las',content=content).status_code == 404
+        assert client.post(f'/api/v1/workbench/projects/{pid}/assets/log?filename=bad.las',content=b'not LAS').status_code == 422
+        assert client.post('/api/v1/workbench/actions',json={'operation':'dvc_restore','arguments':{}}).status_code == 422
+
+
+@pytest.mark.parametrize('host,headers', [
+    ('192.0.2.12', {}),
+    ('192.0.2.12', {'X-Forwarded-For':'127.0.0.1'}),
+    ('127.0.0.1', {'Origin':'https://untrusted.example'}),
+])
+def test_local_workbench_rejects_remote_clients_and_cross_origin(harness,host,headers):
+    from well_seismic.local_workbench import build_local_workbench_router
+    app=FastAPI();app.include_router(build_local_workbench_router(harness))
+    with TestClient(app, client=(host,50000)) as client:
+        assert client.post('/api/v1/workbench/actions',json={'operation':'project_list','arguments':{}},headers=headers).status_code==403

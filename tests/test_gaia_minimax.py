@@ -367,3 +367,26 @@ def test_standalone_openai_chat_uses_tool_agent_with_local_owner():
     assert agent.call_args.kwargs["harness"] is api._huiyan_harness
     assert agent.call_args.kwargs["request_id"] == request.request_id
     plain_chat.assert_not_called()
+
+
+def test_standalone_selected_project_is_verified_before_agent_dispatch():
+    from well_seismic import api
+    from well_seismic.api_models import AssistantChatRequest
+    from well_seismic.local_workbench import LOCAL_WORKBENCH_SUBJECT
+    from fastapi import HTTPException
+    settings=GaiaMiniMaxSettings('deepseek-chat','deepseek-chat','unit-key',protocol='openai')
+    project='hp_'+'a'*32
+    with (
+        patch.object(GaiaMiniMaxSettings,'from_environment',return_value=settings),
+        patch.object(api._huiyan_harness,'assistant_context',return_value={'binding':'unselected'}),
+        patch.object(api._huiyan_harness,'project',return_value={'id':project,'name':'Local'}) as owned,
+        patch.object(api,'_assistant_context',return_value={}),
+        patch('well_seismic.gaia_agent.chat_with_huiyan_agent',return_value={'answer':'ok'}) as agent,
+    ):
+        api.assistant_chat_authenticated(AssistantChatRequest(message='检查曲线',project_id=project),subject='local-workbench')
+        owned.assert_called_once_with(LOCAL_WORKBENCH_SUBJECT,project)
+        assert agent.call_args.kwargs['context']['harness']['project_id']==project
+        owned.side_effect=HTTPException(404,'Project not found')
+        with pytest.raises(HTTPException):
+            api.assistant_chat_authenticated(AssistantChatRequest(message='检查曲线',project_id=project),subject='local-workbench')
+        assert agent.call_count==1

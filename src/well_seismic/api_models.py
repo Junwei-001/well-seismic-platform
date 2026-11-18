@@ -563,6 +563,7 @@ class BatchIssueActionRequest(BaseModel):
 
 
 class AssistantChatRequest(BaseModel):
+    project_id: str | None = Field(default=None, pattern=r"^hp_[0-9a-f]{32}$")
     request_id: UUID | None = None
     message: str = Field(min_length=1, max_length=2000)
     task_id: str | None = None

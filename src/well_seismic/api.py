@@ -12037,18 +12037,27 @@ _huiyan_harness = HuiyanHarness(
     },
 )
 app.include_router(build_huiyan_harness_router(_huiyan_harness))
+from .local_workbench import build_local_workbench_router
+app.include_router(build_local_workbench_router(_huiyan_harness))
 
 def assistant_chat_authenticated(request: AssistantChatRequest, *, subject: str) -> dict[str, Any]:
     from .gaia_agent import chat_with_huiyan_agent
     # The loopback desktop alias is server-selected, never a Gaia user input.
     # Keep the same strict opaque principal contract as authenticated callers.
     if subject == "local-workbench":
-        subject = hashlib.sha256(b"well-seismic:local-workbench").hexdigest()
+        from .local_workbench import LOCAL_WORKBENCH_SUBJECT
+        subject = LOCAL_WORKBENCH_SUBJECT
     try:
         settings = GaiaMiniMaxSettings.from_environment()
         if settings is None:
             raise GaiaMiniMaxError("助手模型尚未配置，请检查后端模型设置。")
         binding = _huiyan_harness.assistant_context(subject, request.task_id)
+        if request.project_id is not None:
+            project = _huiyan_harness.project(subject, request.project_id)
+            if binding.get("project_id") not in {None, request.project_id}:
+                raise HTTPException(404, "Task not found in selected project")
+            binding = {**binding, "binding": "bound", "project_id": project["id"],
+                       "project_name": project["name"]}
         # Keep the authoritative binding ahead of the bounded task summary.
         context = {"harness": sanitize_llm_payload(binding)}
         context.update({
