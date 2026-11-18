@@ -362,6 +362,7 @@ _EMPTY_BUSINESS_STATE = re.compile(
 
 
 def _clean_reply(answer: str) -> str:
+    answer = answer.replace("在盖亚任务卡打开", "在当前界面直接查看").replace("盖亚任务卡中的", "界面中的结果按钮").replace("盖亚任务卡", "界面中的结果按钮")
     # Keep any link labels and scientific qualifiers while removing service
     # addresses, formatting and opaque identifiers from the conversation.
     answer = re.sub(r"\[([^\]\n]+)\]\(" + _INTERNAL_URL + r"\)", r"\1", answer)

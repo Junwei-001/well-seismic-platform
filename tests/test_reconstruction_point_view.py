@@ -203,7 +203,9 @@ const ctx={clearRect:()=>{fills=0;arcs=0;coordinates=[];},beginPath:noop,closePa
 const scope={dataset:{},addEventListener:noop};
 const buttons=['3d','xy','xz','yz'].map(view=>({dataset:{pointView:view},setAttribute:noop,
  addEventListener:(e,f)=>handlers[view]=f}));
-const root={querySelectorAll:()=>buttons,querySelector:()=>scope};
+const orbit=['up','down','left','right'].map(v=>({dataset:{orbit:v},addEventListener:(e,f)=>handlers['orbit:'+v]=f}));
+const zoom=['in','out'].map(v=>({dataset:{zoom:v},addEventListener:(e,f)=>handlers['zoom:'+v]=f}));
+const root={querySelectorAll:s=>s==='[data-orbit]'?orbit:s==='[data-zoom]'?zoom:buttons,querySelector:()=>scope};
 const canvas={getContext:()=>ctx,closest:()=>root,addEventListener:(n,f)=>handlers[n]=f,setPointerCapture:noop,
  getBoundingClientRect:()=>({width:800,height:500})};
 const elements={'point-canvas':canvas};
@@ -212,10 +214,10 @@ const document={getElementById:id=>elements[id]||(elements[id]={addEventListener
 const window={addEventListener:noop,matchMedia:()=>({addEventListener:noop})};
 vm.runInNewContext(script,{document,window,CustomEvent:class{constructor(type){this.type=type;}},
  getComputedStyle:()=>({getPropertyValue:()=> '#123456'})});
-if(fills<1000||fills>1802||arcs!==2||ready!==1)throw Error('missing cutaway block '+fills);
+if(fills<1000||fills>1804||arcs!==3||ready!==1)throw Error('missing cutaway block '+fills);
 const blockFills=fills;
-for(const [view,expected] of [['xy',361],['xz',152],['yz',152],['3d',blockFills]]){
- handlers[view]();if(fills!==expected||arcs!==(view==='3d'?2:0)||ready!==1)throw Error('wrongsection '+view+':'+fills);
+for(const [view,expected] of [['xy',362],['xz',153],['yz',153],['3d',blockFills]]){
+ handlers[view]();if(fills!==expected||arcs!==(view==='3d'?3:1)||ready!==1)throw Error('wrongsection '+view+':'+fills);
 }
 const baseline=JSON.stringify(coordinates);
 handlers.wheel({deltaY:-200,preventDefault:noop});
@@ -224,6 +226,12 @@ handlers.dblclick();if(JSON.stringify(coordinates)!==baseline)throw Error('reset
 handlers.pointerdown({clientX:0,clientY:0,pointerId:1});handlers.pointermove({clientX:70,clientY:30});handlers.pointerup();
 if(JSON.stringify(coordinates)===baseline)throw Error('drag did not rotate');
 handlers.dblclick();if(JSON.stringify(coordinates)!==baseline)throw Error('doubleclick did not reset');
+for(const control of ['orbit:up','orbit:down','orbit:left','orbit:right','zoom:in','zoom:out']){
+ handlers[control]();if(JSON.stringify(coordinates)===baseline)throw Error('button did not change camera '+control);handlers.dblclick();
+}
+const tickIds=['point-max','point-q3','point-mid','point-q1','point-min'];
+const ticks=tickIds.map(id=>{if(!/^\d+\.\d{4}$/.test(elements[id].textContent))throw Error('tickformat');return Number(elements[id].textContent);});
+if(!ticks.every((v,i)=>i===0||v<=ticks[i-1]))throw Error('legend order');
 '''
     result = subprocess.run(['node', '-e', runner], input=script, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

@@ -2017,3 +2017,8 @@ th { color: #526176; font-weight: 680; }
 .app-shell .primary-directory-rail .nav-item.active .nav-icon { color: #1668dc; }
 .point-visualization-panel { border: 0; box-shadow: none; border-radius: 0; background: transparent; }
 .point-visualization-frame { height: calc(100dvh - 40px); min-height: 760px; }
+
+/* Center the scientific viewport as a single card in the middle pane. */
+.app-shell:not(.landing-shell) .main-content.visualization-content { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100dvh; padding: 20px 24px !important; }
+.main-content.visualization-content .point-visualization-panel { width: 100%; max-width: 100%; margin: auto 0; }
+.main-content.visualization-content .point-visualization-frame { height: clamp(620px, calc(100dvh - 44px), 840px); min-height: 620px; }

@@ -214,7 +214,7 @@ ACTION_SPECS = {
         _object({"project_id": P, "task_id": T}, ["project_id", "task_id"]),
     ),
     "visualization": (
-        "核验所属任务的原生预览和可交互结果；在盖亚任务卡打开页面。",
+        "核验所属任务的原生预览和可交互结果；在当前工作台直接查看。",
         _object({"project_id": P, "task_id": T}, ["project_id", "task_id"]),
     ),
     "model_assets": ("查询原生模型能力与缺失资产合同。", _object({})),
@@ -1419,7 +1419,7 @@ class HuiyanHarness:
                 result.update(
                     viewer_available=True,
                     viewer_kind="p21_query_points",
-                    viewer_entry="盖亚已完成任务卡中的慧眼结果页面",
+                    viewer_entry="当前工作台中的「查看三维结果」按钮",
                 )
             return result
         if op == "model_assets":

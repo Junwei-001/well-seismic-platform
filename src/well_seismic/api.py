@@ -11997,7 +11997,7 @@ def gaia_owned_visualization(task_id: str, *, embed: bool = True, **selectors: A
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>地层慧眼 · P21 查询点</title><style>"
         "body{font:16px system-ui,sans-serif;color:#0f172a;background:#f8fafc;margin:0;padding:0}"
-        "main{max-width:none;margin:0;background:transparent;padding:0;border-radius:0}"
+        "main{min-height:100dvh;display:flex;align-items:center;max-width:none;margin:0;background:transparent;padding:0;border-radius:0}"
         "button,select{font:inherit;padding:5px 10px;margin:6px}"
         "</style>" + readiness + "</head><body><main id='workbench'>"
         + content + "</main></body></html>"

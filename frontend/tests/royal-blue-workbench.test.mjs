@@ -10,3 +10,8 @@ test('the three-pane workbench shares blue/slate tokens and hides diagnostic chr
   for(const teal of ['#167778','#eaf6f4','#eef8f6','#176e78','#327277','#208677','#5ca5ad','#478b8d'])assert.ok(!assistant.includes(teal),teal);
   assert.ok(assistant.includes('background:#1668dc'));
 });
+
+test('the scientific viewport centers its card within a full-height middle column',()=>{
+  assert.match(css,/\.main-content\.visualization-content\s*\{[^}]*justify-content: center;[^}]*align-items: center;/);
+  assert.ok(css.includes('height: clamp(620px, calc(100dvh - 44px), 840px)'));
+});

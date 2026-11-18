@@ -351,7 +351,7 @@ def test_p21_visualization_receipt_requires_real_interactive_content(harness):
     assert result["status"] == "completed"
     assert result["result"]["viewer_available"] is True
     assert result["result"]["viewer_kind"] == "p21_query_points"
-    assert "盖亚" in result["result"]["viewer_entry"]
+    assert result["result"]["viewer_entry"] == "当前工作台中的「查看三维结果」按钮"
 
     harness.native["visualization"] = lambda **kwargs: HTMLResponse(
         '<main id="workbench">No plotted points</main>'

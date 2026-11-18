@@ -93,17 +93,22 @@ def render_query_points(path: Path, *, archived: bool = False) -> str:
 @media(max-width:580px){.p21-viewer{padding:14px}.p21-plot{padding:6px}.p21-legend{font-size:10px}.p21-colorbar{width:8px;min-height:80px}.p21-viewer button{padding:7px 8px}.p21-kpis{margin:12px 0}}
 
 .p21-eyebrow,.p21-subtitle,.p21-kpis,.p21-scope,.p21-caption,.p21-detail{display:none!important}
-.p21-viewer{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px 12px;padding:18px;box-shadow:none;border:1px solid var(--p21-edge);border-radius:12px}
+.p21-viewer{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px 12px;padding:18px;box-shadow:none;border:1px solid var(--p21-edge);border-radius:12px}
 .p21-head{align-items:center;align-self:center}.p21-viewer h2{font-size:18px;white-space:nowrap}.p21-toolbar{justify-content:flex-end;align-self:center;margin:0;gap:8px}.p21-controls{gap:1px;padding:3px}.p21-viewer button{font-size:12px;padding:7px 8px}.p21-plot{grid-column:1/-1;padding:6px}
 @media(max-width:700px){.p21-head{grid-column:1/-1}.p21-toolbar{grid-column:1/-1;justify-content:flex-start}.p21-viewer{gap:12px}}
+.p21-canvas-wrap{position:relative}.p21-hud{position:absolute;top:12px;left:12px;z-index:1;padding:6px 10px;border:1px solid rgba(203,213,225,.7);border-radius:999px;background:rgba(255,255,255,.82);backdrop-filter:blur(6px);font-size:11px;color:#475569;pointer-events:none}
+.p21-camera-pad{position:absolute;right:10px;bottom:14px;z-index:1;display:grid;grid-template-columns:repeat(3,28px);gap:3px;padding:7px;background:rgba(255,255,255,.84);border:1px solid #cbd5e1;box-shadow:0 4px 14px rgba(15,23,42,.06);border-radius:12px;backdrop-filter:blur(6px)}
+.p21-camera-pad button{display:grid;place-items:center;width:28px;height:28px;padding:0;font-size:17px;color:#475569}.p21-camera-pad button:hover{background:#eff6ff;color:#1668dc}.p21-camera-pad [data-orbit=up]{grid-column:2}.p21-camera-pad [data-orbit=left]{grid-column:1;grid-row:2}.p21-camera-pad [data-orbit=right]{grid-column:3;grid-row:2}.p21-camera-pad [data-orbit=down]{grid-column:2;grid-row:3}.p21-camera-pad [data-zoom=in]{grid-column:1;grid-row:4}.p21-camera-pad [data-zoom=out]{grid-column:3;grid-row:4}
+.p21-legend{background:rgba(255,255,255,.94);border:1px solid #cbd5e1;border-radius:12px;padding:12px 14px;box-shadow:0 4px 16px rgba(15,23,42,.06);display:flex;flex-direction:column;justify-content:space-between;align-self:center;min-height:360px;gap:18px}
+.p21-legend header{display:grid;gap:3px}.p21-legend strong{color:#0f172a;font-size:12px}.p21-legend header span{font-size:10px;color:#64748b}.p21-legend-scale{display:flex;gap:10px;flex:1;min-height:280px}.p21-colorbar{width:15px;min-height:280px;border:1px solid rgba(15,23,42,.2);border-radius:4px}.p21-ticks{font-size:11px;gap:0}.p21-ticks span{position:relative;line-height:1}.p21-ticks span:before{content:'';position:absolute;left:-10px;top:50%;width:6px;height:1px;background:#94a3b8}
 </style>
 <header class="p21-head"><div><p class="p21-eyebrow">HUIYAN · 3D RECONSTRUCTION</p><h2 id="p21-title">三维地层网格模型</h2><p class="p21-subtitle">查询点插值展示 · 拖动旋转视角</p></div>
 <details class="p21-scope"><summary aria-label="查看数据范围说明">ⓘ<span class="p21-scope-body p21-scope-preview" aria-hidden="true">基于原开发折查询点的插值展示；坐标按训练支撑尺度归一化，无量纲。颜色表示预测值，目标单位沿用原研究档案。</span></summary><div class="p21-scope-body">厚度、剖切网格和 W-1、W-2 展示井为示意几何，并非新增地层识别结果或实测井；不代表完整三维体或新工区验证。X、Y、Z 为按训练支撑尺度归一化的坐标，无量纲；不是地理坐标或米制深度。颜色表示预测值，目标单位沿用原研究档案。</div></details></header>
 <div class="p21-kpis"><span class="p21-kpi">查询点数 <strong id="point-count"></strong></span><span class="p21-kpi">预测区间 <strong id="point-range"></strong></span>__ARCHIVE_BADGE__</div>
 <div class="p21-toolbar"><div class="p21-controls" id="point-view" role="group" aria-label="选择地层模型视角">
 <button type="button" data-point-view="3d" aria-pressed="true">三维网格体</button><button type="button" data-point-view="xy" aria-pressed="false">X–Y 顶面</button><button type="button" data-point-view="xz" aria-pressed="false">X–Z 剖面</button><button type="button" data-point-view="yz" aria-pressed="false">Y–Z 剖面</button></div><button type="button" class="p21-reset" id="point-reset">重置视角</button></div>
-<div class="p21-plot"><div class="p21-canvas-wrap"><canvas id="point-canvas" width="900" height="520" aria-label="标准化坐标查询点彩色投影；可拖动旋转、悬停查询数据" role="img"></canvas></div>
-<div class="p21-legend" aria-label="预测值颜色图例，蓝色为低值，红色为高值"><div class="p21-colorbar" aria-hidden="true"></div><div class="p21-ticks"><span id="point-max"></span><span id="point-mid"></span><span id="point-min"></span></div></div></div>
+<div class="p21-plot"><div class="p21-canvas-wrap"><span class="p21-hud">拖拽旋转 · 滚轮缩放</span><div class="p21-camera-pad" role="group" aria-label="三维视口控制"><button type="button" data-orbit="up" aria-label="向上旋转">↑</button><button type="button" data-orbit="left" aria-label="向左旋转">←</button><button type="button" data-orbit="right" aria-label="向右旋转">→</button><button type="button" data-orbit="down" aria-label="向下旋转">↓</button><button type="button" data-zoom="in" aria-label="放大">+</button><button type="button" data-zoom="out" aria-label="缩小">−</button></div><canvas id="point-canvas" width="900" height="520" aria-label="标准化坐标查询点彩色投影；可拖动旋转、悬停查询数据" role="img"></canvas></div>
+<div class="p21-legend" aria-label="物性属性预测值图例"><header><strong>物性属性</strong><span>预测值</span></header><div class="p21-legend-scale"><div class="p21-colorbar" aria-hidden="true"></div><div class="p21-ticks"><span id="point-max"></span><span id="point-q3"></span><span id="point-mid"></span><span id="point-q1"></span><span id="point-min"></span></div></div></div></div>
 <p class="p21-caption"><span>坐标 X / Y / Z · 训练支撑尺度归一化</span><span>颜色表示预测值</span></p><p id="point-detail" class="p21-detail" role="status" aria-live="polite"></p>
 <script>
 (() => {
@@ -120,7 +125,8 @@ const low=Math.min(...data.map(p=>p[3])),high=Math.max(...data.map(p=>p[3])),
  center=normLo.map((v,k)=>v/2+normHi[k]/2),span=Math.max(...normHi.map((v,k)=>v-normLo[k]),1e-300),
  valueScale=Math.max(Math.abs(low),Math.abs(high),1),valueLow=low/valueScale,valueHigh=high/valueScale;
 document.getElementById('point-range').textContent=`${number(low)} – ${number(high)}`;
-document.getElementById('point-max').textContent=number(high);document.getElementById('point-mid').textContent=number(low/2+high/2);document.getElementById('point-min').textContent=number(low);
+const legendNumber=v=>high-low<1?Number(v).toFixed(4):number(v);
+for(const [id,t] of [['point-max',1],['point-q3',.75],['point-mid',.5],['point-q1',.25],['point-min',0]]){const tick=document.getElementById(id);if(tick)tick.textContent=legendNumber(low*(1-t)+high*t);}
 let yaw=-2.45,pitch=.55,zoom=1,view='3d',projected=[],drag=null,w=900,h=520,readyNotified=false;
 function setView(next){view=next;buttons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.pointView===view)));draw();}
 if(!strata){yaw=.6;pitch=-.4;}
@@ -241,11 +247,33 @@ function drawWells(){
   ctx.fillStyle='#0f172a';ctx.font='600 12px system-ui,sans-serif';const at=labelPosition('W-'+(index+1),p.x+6,p.y-7);ctx.fillText('W-'+(index+1),at.x,at.y);
  }
 }
+function studio(){
+ if(!strata)return;
+ if(typeof ctx.createLinearGradient==='function'&&typeof ctx.fillRect==='function'){
+  const gradient=ctx.createLinearGradient(0,0,0,h);gradient.addColorStop(0,'#f8fafc');gradient.addColorStop(.58,'#eef2f7');gradient.addColorStop(1,'#e2e8f0');ctx.fillStyle=gradient;ctx.fillRect(0,0,w,h);
+ }
+ if(view!=='3d')return;
+ const z=lo[2]-.06*span*unitScale,dx=(hi[0]-lo[0])*.18,dy=(hi[1]-lo[1])*.18;
+ ctx.strokeStyle='rgba(100,116,139,.20)';ctx.lineWidth=.6;ctx.beginPath();
+ for(let i=0;i<=8;i++){const t=i/8,x=lo[0]-dx+(hi[0]-lo[0]+2*dx)*t,y=lo[1]-dy+(hi[1]-lo[1]+2*dy)*t;line([x,lo[1]-dy,z],[x,hi[1]+dy,z]);line([lo[0]-dx,y,z],[hi[0]+dx,y,z]);}ctx.stroke();
+ const footprint=[[lo[0],lo[1],z],[hi[0],lo[1],z],[hi[0],hi[1],z],[lo[0],hi[1],z]].map(project);
+ ctx.fillStyle='rgba(15,23,42,.07)';ctx.beginPath();footprint.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill();
+}
+function compass(){
+ if(!strata||w<360)return;
+ const x=64,y=h-64,r=38;
+ ctx.fillStyle='rgba(255,255,255,.78)';ctx.strokeStyle='#cbd5e1';ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.stroke();
+ const origin=rawProject([0,0,0]),size=24;
+ const axes=[['X / E','#dc2626',[1,0,0]],['Y / N','#16a34a',[0,1,0]],['Z','#1668dc',[0,0,1]]].map(([label,color,point])=>{
+  const p=rawProject(point);return{label,color,x:(p.x-origin.x)*span*unitScale*size,y:-(p.y-origin.y)*span*unitScale*size,depth:p.depth-origin.depth};
+ }).sort((a,b)=>a.depth-b.depth);
+ for(const axis of axes){const px=x+axis.x,py=y+axis.y,angle=Math.atan2(axis.y,axis.x);ctx.strokeStyle=axis.color;ctx.fillStyle=axis.color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(px,py);ctx.lineTo(px-5*Math.cos(angle-.5),py-5*Math.sin(angle-.5));ctx.moveTo(px,py);ctx.lineTo(px-5*Math.cos(angle+.5),py-5*Math.sin(angle+.5));ctx.stroke();ctx.font='600 9px system-ui,sans-serif';ctx.fillText(axis.label,px+3,py-3);}
+}
 function draw(){
- if(!ctx)return;ctx.clearRect(0,0,w,h);fitFrame();projected=data.map((p,index)=>({...project(p),index}));
+ if(!ctx)return;ctx.clearRect(0,0,w,h);fitFrame();studio();projected=data.map((p,index)=>({...project(p),index}));
  if(strata){drawStrata();}else{
  projected.sort((a,b)=>a.depth-b.depth).forEach(p=>{const t=high>low?(data[p.index][3]/valueScale-valueLow)/(valueHigh-valueLow):.5;
-  ctx.fillStyle=`hsl(${240*(1-t)} 75% 43%)`;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,Math.min(3.5,w/240)),0,2*Math.PI);ctx.fill();});}frame();
+  ctx.fillStyle=`hsl(${240*(1-t)} 75% 43%)`;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,Math.min(3.5,w/240)),0,2*Math.PI);ctx.fill();});}frame();compass();
  if(!readyNotified){readyNotified=true;document.dispatchEvent(new CustomEvent('huiyan:point-viewer-ready'));}
 }
 function resize(){const bounds=canvas.getBoundingClientRect();if(!bounds.width||!bounds.height)return;w=bounds.width;h=bounds.height;const ratio=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);draw();}
@@ -256,6 +284,14 @@ canvas.addEventListener('pointermove',e=>{
  detail.textContent='';
 });
 buttons.forEach(button=>button.addEventListener('click',()=>setView(button.dataset.pointView)));
+for(const button of root.querySelectorAll('[data-orbit]')){
+ if(!['up','down','left','right'].includes(button.dataset?.orbit))continue;
+ button.addEventListener('click',()=>{if(button.dataset.orbit==='up')pitch-=.18;if(button.dataset.orbit==='down')pitch+=.18;if(button.dataset.orbit==='left')yaw-=.24;if(button.dataset.orbit==='right')yaw+=.24;setView('3d');});
+}
+for(const button of root.querySelectorAll('[data-zoom]')){
+ if(!['in','out'].includes(button.dataset?.zoom))continue;
+ button.addEventListener('click',()=>{zoom=button.dataset.zoom==='in'?Math.min(2.4,zoom*1.15):Math.max(.65,zoom/1.15);draw();});
+}
 function reset(){yaw=strata ? -2.45 : .6;pitch=strata ? .55 : -.4;zoom=1;setView('3d');}
 document.getElementById('point-reset').addEventListener('click',reset);
 canvas.addEventListener('dblclick',reset);
@@ -280,7 +316,7 @@ def export_query_grid_html(path: Path, *, archived: bool = False) -> str:
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         '<title>慧眼 · 三维角点网格展示</title>'
         '<meta name="description" content="真实P21查询属性插值展示；厚度、地层网格、剖切和W-1/W-2为示意几何，不是新增预测或实测井。拖动旋转，滚轮缩放，双击复位。">'
-        '<style>html,body{margin:0;background:#f8fafc;color:#0f172a}body{max-width:1440px;margin:auto;padding:20px;font-family:system-ui,sans-serif}</style>'
+        '<style>html,body{margin:0;background:#f8fafc;color:#0f172a}body{max-width:1440px;min-height:100dvh;box-sizing:border-box;display:grid;place-items:center;margin:auto;padding:20px;font-family:system-ui,sans-serif}</style>'
         '</head><body>' + render_query_points(path, archived=archived)
         + '</body></html>'
     )

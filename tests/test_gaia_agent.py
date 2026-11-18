@@ -639,3 +639,11 @@ def test_openai_second_user_turn_replays_only_supported_assistant_fields(tmp_pat
     assert retained == {
         "role": "assistant", "content": "工区已查询。", "reasoning_content": "opaque-first",
     }
+
+
+@pytest.mark.parametrize("text", ["结果已在盖亚任务卡打开。", "请使用盖亚任务卡中的按钮。", "盖亚任务卡可查看结果。"])
+def test_standalone_reply_never_directs_user_to_gaia_card(text):
+    from well_seismic.gaia_agent import _clean_reply
+    result = _clean_reply(text)
+    assert "盖亚任务卡" not in result
+    assert "界面" in result
