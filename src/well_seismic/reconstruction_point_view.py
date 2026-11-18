@@ -6,6 +6,33 @@ import zipfile
 import numpy as np
 
 
+def _interpolated_strata(xyz: np.ndarray, prediction: np.ndarray) -> dict | None:
+    """Bounded display interpolation of ordered query strips, not new inference."""
+    if len(prediction) < 64:
+        return None
+    cuts = np.flatnonzero(np.diff(xyz[:, 1]) < -0.3) + 1
+    layers = np.split(np.arange(len(prediction)), cuts)
+    if not 2 <= len(layers) <= 32 or any(len(layer) < 3 for layer in layers):
+        return None
+    xs = np.linspace(float(xyz[:, 0].min()), float(xyz[:, 0].max()), 24)
+    ys = np.linspace(float(xyz[:, 1].min()), float(xyz[:, 1].max()), 24)
+    gx, gy = np.meshgrid(xs, ys)
+    query = np.column_stack((gx.ravel(), gy.ravel()))
+    z_layers, v_layers = [], []
+    for indices in layers:
+        points = xyz[indices].astype(float)
+        d2 = np.sum((query[:, None, :] - points[None, :, :2]) ** 2, axis=2)
+        weights = 1.0 / (d2 + 1e-4) ** 2
+        weights /= weights.sum(axis=1, keepdims=True)
+        z_layers.append((weights @ points[:, 2]).reshape(24, 24))
+        v_layers.append((weights @ prediction[indices]).reshape(24, 24))
+    # Keep paired horizon/value surfaces in their actual elevation order.
+    order = np.argsort([float(z.mean()) for z in z_layers])
+    return {"x": xs.round(5).tolist(), "y": ys.round(5).tolist(),
+            "z": [z_layers[i].round(5).tolist() for i in order],
+            "v": [v_layers[i].round(5).tolist() for i in order]}
+
+
 def render_query_points(path: Path, *, archived: bool = False) -> str:
     # Check the decompressed member sizes before NumPy allocates arrays.
     with zipfile.ZipFile(path) as archive:
@@ -33,29 +60,31 @@ def render_query_points(path: Path, *, archived: bool = False) -> str:
     if not all(np.issubdtype(value.dtype, np.number) and not np.iscomplexobj(value) and np.isfinite(value).all()
                for value in (xyz, prediction)):
         raise ValueError("三维重建查询点预览必须使用有限的实数值")
+    strata = json.dumps(_interpolated_strata(xyz, prediction), allow_nan=False, separators=(",", ":"))
     payload = json.dumps(np.column_stack([xyz, prediction]).tolist(), allow_nan=False)
     return """<section class="p21-viewer" data-point-viewer aria-labelledby="p21-title">
 <style>
 .p21-viewer{--p21-ink:#19334b;--p21-muted:#566f83;--p21-surface:#fff;--p21-canvas:#f4f9fc;--p21-edge:#d8e6ef;--p21-accent:#14669a;--p21-axis:#627e93;--p21-shadow:0 12px 36px rgba(33,70,94,.08);color:var(--p21-ink);font:14px/1.5 system-ui,sans-serif;background:var(--p21-surface);border-radius:18px;padding:clamp(16px,2vw,26px);box-shadow:var(--p21-shadow)}
 .p21-viewer *{box-sizing:border-box}.p21-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}.p21-eyebrow{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:750;color:var(--p21-accent);margin:0 0 4px}.p21-viewer h2{font-size:clamp(19px,2.2vw,25px);line-height:1.3;margin:0;color:var(--p21-ink)}.p21-subtitle{color:var(--p21-muted);margin:5px 0 0}.p21-kpis{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.p21-kpi{display:inline-flex;gap:6px;align-items:baseline;padding:6px 11px;background:var(--p21-canvas);border-radius:9px;color:var(--p21-muted);font-size:12px}.p21-kpi strong{color:var(--p21-ink);font-size:13px;font-variant-numeric:tabular-nums}.p21-scope{position:relative;color:var(--p21-accent)}.p21-scope summary{list-style:none;cursor:pointer;display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--p21-edge);border-radius:50%;font-weight:700}.p21-scope summary::-webkit-details-marker{display:none}.p21-scope summary:focus-visible,.p21-viewer button:focus-visible{outline:3px solid #489fce;outline-offset:3px}.p21-scope-body{position:absolute;z-index:3;right:0;top:36px;width:min(320px,80vw);padding:12px 14px;background:var(--p21-surface);border:1px solid var(--p21-edge);border-radius:10px;box-shadow:var(--p21-shadow);font-size:12px;line-height:1.6;color:var(--p21-ink)}.p21-scope:not([data-dismissed]):hover:not([open]) .p21-scope-preview,.p21-scope:not([data-dismissed]):focus-within:not([open]) .p21-scope-preview{display:block}.p21-scope-preview{display:none}
 .p21-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}.p21-controls{display:flex;gap:3px;overflow-x:auto;max-width:100%;padding:4px;background:var(--p21-canvas);border-radius:11px}.p21-viewer button{font:inherit;color:var(--p21-muted);cursor:pointer;border:0;background:transparent;border-radius:8px;padding:7px 10px;margin:0;white-space:nowrap}.p21-controls button[aria-pressed="true"]{color:var(--p21-accent);background:var(--p21-surface);box-shadow:0 1px 5px rgba(21,61,85,.14);font-weight:700}.p21-reset{border:1px solid var(--p21-edge)!important;color:var(--p21-ink)!important}.p21-viewer button:hover{color:var(--p21-accent)}
-.p21-plot{display:flex;align-items:stretch;gap:10px;min-width:0;background:var(--p21-canvas);border-radius:12px;padding:12px}.p21-canvas-wrap{min-width:0;flex:1}.p21-viewer canvas{display:block;width:100%;height:clamp(240px,48vh,500px);touch-action:none;cursor:grab}.p21-viewer canvas:active{cursor:grabbing}.p21-legend{display:flex;align-items:stretch;gap:7px;padding:14px 5px 14px 0;font-size:11px;color:var(--p21-muted);font-variant-numeric:tabular-nums}.p21-colorbar{width:11px;min-height:120px;border-radius:8px;background:linear-gradient(to top,hsl(240 75% 43%),hsl(180 75% 43%),hsl(120 75% 43%),hsl(60 75% 43%),hsl(0 75% 43%))}.p21-ticks{display:flex;flex-direction:column;justify-content:space-between}.p21-caption{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--p21-muted);font-size:12px;margin:12px 0 0}.p21-detail{min-height:1.5em;margin:8px 0 0;color:var(--p21-muted);font-size:12px}
+.p21-plot{display:flex;align-items:stretch;gap:10px;min-width:0;background:var(--p21-canvas);border-radius:12px;padding:12px}.p21-canvas-wrap{min-width:0;flex:1}.p21-viewer canvas{display:block;width:100%;height:clamp(240px,48vh,500px);touch-action:none;cursor:grab}.p21-viewer canvas:active{cursor:grabbing}.p21-legend{display:flex;align-items:stretch;gap:7px;padding:14px 5px 14px 0;font-size:11px;color:var(--p21-muted);font-variant-numeric:tabular-nums}.p21-colorbar{width:11px;min-height:120px;border-radius:8px;background:linear-gradient(to top,hsl(240 75% 43%),hsl(180 75% 43%),hsl(120 75% 43%),hsl(60 75% 43%),hsl(0 75% 43%))}.p21-ticks{display:flex;flex-direction:column;justify-content:space-between}.p21-caption{display:none;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--p21-muted);font-size:12px;margin:12px 0 0}.p21-detail{min-height:1.5em;margin:8px 0 0;color:var(--p21-muted);font-size:12px}
 @media(max-width:580px){.p21-viewer{padding:14px}.p21-plot{padding:6px}.p21-legend{font-size:10px}.p21-colorbar{width:8px;min-height:80px}.p21-viewer button{padding:7px 8px}.p21-kpis{margin:12px 0}}
 @media(prefers-color-scheme:dark){.p21-viewer{--p21-ink:#e5f2f9;--p21-muted:#aec3d1;--p21-surface:#172a38;--p21-canvas:#10222e;--p21-edge:#3d5868;--p21-accent:#80c5ee;--p21-axis:#9ab6c9;--p21-shadow:0 12px 36px rgba(0,0,0,.2)}}
 </style>
-<header class="p21-head"><div><p class="p21-eyebrow">HUIYAN · 3D RECONSTRUCTION</p><h2 id="p21-title">P21 三维条件属性重建</h2><p class="p21-subtitle">查询点预测结果 · 拖动图形旋转视角</p></div>
-<details class="p21-scope"><summary aria-label="查看数据范围说明">ⓘ<span class="p21-scope-body p21-scope-preview" aria-hidden="true">仅显示原开发折查询点；坐标按训练支撑尺度归一化，无量纲。颜色表示预测值，目标单位沿用原研究档案。</span></summary><div class="p21-scope-body">仅显示原开发折查询点，不代表完整三维体或新工区验证。X、Y、Z 为按训练支撑尺度归一化的坐标，无量纲；不是地理坐标或米制深度。颜色表示预测值，目标单位沿用原研究档案。</div></details></header>
+<header class="p21-head"><div><p class="p21-eyebrow">HUIYAN · 3D RECONSTRUCTION</p><h2 id="p21-title">P21 三维地层属性重建</h2><p class="p21-subtitle">查询点插值展示 · 拖动旋转视角</p></div>
+<details class="p21-scope"><summary aria-label="查看数据范围说明">ⓘ<span class="p21-scope-body p21-scope-preview" aria-hidden="true">基于原开发折查询点的插值展示；坐标按训练支撑尺度归一化，无量纲。颜色表示预测值，目标单位沿用原研究档案。</span></summary><div class="p21-scope-body">原开发折查询点按采样条带插值为连续界面，并非新增地层识别结果；不代表完整三维体或新工区验证。X、Y、Z 为按训练支撑尺度归一化的坐标，无量纲；不是地理坐标或米制深度。颜色表示预测值，目标单位沿用原研究档案。</div></details></header>
 <div class="p21-kpis"><span class="p21-kpi">查询点数 <strong id="point-count"></strong></span><span class="p21-kpi">预测区间 <strong id="point-range"></strong></span>__ARCHIVE_BADGE__</div>
-<div class="p21-toolbar"><div class="p21-controls" id="point-view" role="group" aria-label="选择点云投影视角">
-<button type="button" data-point-view="3d" aria-pressed="true">三维斜视</button><button type="button" data-point-view="xy" aria-pressed="false">X–Y 平面</button><button type="button" data-point-view="xz" aria-pressed="false">X–Z 平面</button><button type="button" data-point-view="yz" aria-pressed="false">Y–Z 平面</button></div><button type="button" class="p21-reset" id="point-reset">重置视角</button></div>
+<div class="p21-toolbar"><div class="p21-controls" id="point-view" role="group" aria-label="选择地层模型视角">
+<button type="button" data-point-view="3d" aria-pressed="true">三维地层体</button><button type="button" data-point-view="xy" aria-pressed="false">X–Y 平面</button><button type="button" data-point-view="xz" aria-pressed="false">X–Z 平面</button><button type="button" data-point-view="yz" aria-pressed="false">Y–Z 平面</button></div><button type="button" class="p21-reset" id="point-reset">重置视角</button></div>
 <div class="p21-plot"><div class="p21-canvas-wrap"><canvas id="point-canvas" width="900" height="520" aria-label="标准化坐标查询点彩色投影；可拖动旋转、悬停查询数据" role="img"></canvas></div>
 <div class="p21-legend" aria-label="预测值颜色图例，蓝色为低值，红色为高值"><div class="p21-colorbar" aria-hidden="true"></div><div class="p21-ticks"><span id="point-max"></span><span id="point-mid"></span><span id="point-min"></span></div></div></div>
-<p class="p21-caption"><span>坐标 X / Y / Z · 训练支撑尺度归一化</span><span>颜色表示预测值</span></p><p id="point-detail" class="p21-detail" role="status" aria-live="polite">悬停查询点可查看数值。</p>
+<p class="p21-caption"><span>坐标 X / Y / Z · 训练支撑尺度归一化</span><span>颜色表示预测值</span></p><p id="point-detail" class="p21-detail" role="status" aria-live="polite"></p>
 <script>
 (() => {
 'use strict';
 const data=__POINT_DATA__, canvas=document.getElementById('point-canvas'),ctx=canvas.getContext('2d'),
  root=canvas.closest('.p21-viewer'),detail=document.getElementById('point-detail'),buttons=[...root.querySelectorAll('[data-point-view]')];
+const strata=__STRATA_DATA__;
 const number=v=>Number(v).toPrecision(6),count=document.getElementById('point-count');
 count.textContent=new Intl.NumberFormat('zh-CN').format(data.length);
 const low=Math.min(...data.map(p=>p[3])),high=Math.max(...data.map(p=>p[3])),
@@ -74,6 +103,7 @@ function rawProject(point){
  if(view==='xy')return{x,y,depth:z};
  if(view==='xz')return{x,y:z,depth:y};
  if(view==='yz')return{x:y,y:z,depth:x};
+ if(strata){const rx=x*Math.cos(yaw)+y*Math.sin(yaw),rz=-x*Math.sin(yaw)+y*Math.cos(yaw);return{x:rx,y:z*Math.cos(pitch)-rz*Math.sin(pitch),depth:z*Math.sin(pitch)+rz*Math.cos(pitch)};}
  const rx=x*Math.cos(yaw)+z*Math.sin(yaw),rz=-x*Math.sin(yaw)+z*Math.cos(yaw);
  return{x:rx,y:y*Math.cos(pitch)-rz*Math.sin(pitch),depth:y*Math.sin(pitch)+rz*Math.cos(pitch)};
 }
@@ -107,10 +137,44 @@ function frame(){
   const end=lo.slice();end[axis]=hi[axis];const pos=project(end);ctx.font='bold 14px system-ui,sans-serif';const at=labelPosition('XYZ'[axis],pos.x+8,pos.y+13);ctx.fillText('XYZ'[axis],at.x,at.y);ctx.font='12px system-ui,sans-serif';
  }
 }
+function strataPolygons(){
+ const nx=strata.x.length,ny=strata.y.length,nz=strata.z.length,polygons=[];
+ const vertex=(k,j,i)=>[strata.x[i],strata.y[j],strata.z[k][j][i],strata.v[k][j][i]];
+ function add(points,wall=false){
+  const q=points.map(project),value=points.reduce((sum,p)=>sum+p[3],0)/4;
+  const a=points[1].map((v,i)=>v-points[0][i]),b=points[3].map((v,i)=>v-points[0][i]);
+  const n=[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],length=Math.hypot(...n)||1;
+  const light=Math.abs((n[0]*.35-n[1]*.45+n[2]*.82)/length);
+  polygons.push({points:q,value,wall,shade:wall?34+light*12:43+light*12,depth:q.reduce((sum,p)=>sum+p.depth,0)/4});
+ }
+ if(view==='3d'||view==='xy'){
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++)add([vertex(nz-1,j,i),vertex(nz-1,j,i+1),vertex(nz-1,j+1,i+1),vertex(nz-1,j+1,i)]);
+ }
+ if(view==='3d'){
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++)add([vertex(0,j,i),vertex(0,j,i+1),vertex(0,j+1,i+1),vertex(0,j+1,i)]);
+  for(let k=0;k<nz-1;k++){
+   for(const j of [0,ny-1])for(let i=0;i<nx-1;i++)add([vertex(k,j,i),vertex(k,j,i+1),vertex(k+1,j,i+1),vertex(k+1,j,i)],true);
+   for(const i of [0,nx-1])for(let j=0;j<ny-1;j++)add([vertex(k,j,i),vertex(k,j+1,i),vertex(k+1,j+1,i),vertex(k+1,j,i)],true);
+  }
+ }
+ if(view==='xz')for(let k=0;k<nz-1;k++)for(let i=0;i<nx-1;i++){const j=Math.floor(ny/2);add([vertex(k,j,i),vertex(k,j,i+1),vertex(k+1,j,i+1),vertex(k+1,j,i)],true);}
+ if(view==='yz')for(let k=0;k<nz-1;k++)for(let j=0;j<ny-1;j++){const i=Math.floor(nx/2);add([vertex(k,j,i),vertex(k,j+1,i),vertex(k+1,j+1,i),vertex(k+1,j,i)],true);}
+ return polygons.sort((a,b)=>a.depth-b.depth);
+}
+function drawStrata(){
+ for(const polygon of strataPolygons()){
+  const t=high>low?Math.max(0,Math.min(1,(polygon.value/valueScale-valueLow)/(valueHigh-valueLow))):.5;
+  ctx.fillStyle=`hsl(${240*(1-t)} 75% ${polygon.shade}%)`;
+  ctx.beginPath();polygon.points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill();
+  ctx.strokeStyle=ctx.fillStyle;ctx.lineWidth=.6;ctx.stroke();
+  if(polygon.wall){ctx.strokeStyle='rgba(30,49,65,.32)';ctx.lineWidth=.65;ctx.beginPath();ctx.moveTo(polygon.points[2].x,polygon.points[2].y);ctx.lineTo(polygon.points[3].x,polygon.points[3].y);ctx.stroke();}
+ }
+}
 function draw(){
  if(!ctx)return;ctx.clearRect(0,0,w,h);fitFrame();projected=data.map((p,index)=>({...project(p),index}));
+ if(strata){drawStrata();}else{
  projected.sort((a,b)=>a.depth-b.depth).forEach(p=>{const t=high>low?(data[p.index][3]/valueScale-valueLow)/(valueHigh-valueLow):.5;
-  ctx.fillStyle=`hsl(${240*(1-t)} 75% 43%)`;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,Math.min(3.5,w/240)),0,2*Math.PI);ctx.fill();});frame();
+  ctx.fillStyle=`hsl(${240*(1-t)} 75% 43%)`;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,Math.min(3.5,w/240)),0,2*Math.PI);ctx.fill();});}frame();
  if(!readyNotified){readyNotified=true;document.dispatchEvent(new CustomEvent('huiyan:point-viewer-ready'));}
 }
 function resize(){const bounds=canvas.getBoundingClientRect();if(!bounds.width||!bounds.height)return;w=bounds.width;h=bounds.height;const ratio=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(w*ratio);canvas.height=Math.round(h*ratio);ctx.setTransform(ratio,0,0,ratio,0,0);draw();}
@@ -121,7 +185,7 @@ canvas.addEventListener('pointermove',e=>{
  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let nearest=null,distance=100;
  projected.forEach(p=>{const d=(p.x-x)**2+(p.y-y)**2;if(d<distance){nearest=p;distance=d;}});
  if(nearest){const p=data[nearest.index];detail.textContent=`查询点 ${nearest.index+1}：X=${number(p[0])}，Y=${number(p[1])}，Z=${number(p[2])}；预测=${number(p[3])}`;}
- else detail.textContent='悬停查询点可查看数值。';
+ else detail.textContent='';
 });
 buttons.forEach(button=>button.addEventListener('click',()=>setView(button.dataset.pointView)));
 document.getElementById('point-reset').addEventListener('click',()=>{yaw=.6;pitch=-.4;setView('3d');});
@@ -133,6 +197,6 @@ window.addEventListener('resize',resize);
 const scheme=window.matchMedia('(prefers-color-scheme: dark)');if(scheme.addEventListener)scheme.addEventListener('change',draw);
 if(window.ResizeObserver)new ResizeObserver(resize).observe(canvas);resize();
 })();
-</script></section>""".replace("__POINT_DATA__", payload).replace(
+</script></section>""".replace("__POINT_DATA__", payload).replace("__STRATA_DATA__", strata).replace(
         "__ARCHIVE_BADGE__", '<span class="p21-kpi">DVC 已归档</span>' if archived else ""
     )

@@ -1995,3 +1995,16 @@ th { color: #526176; font-weight: 680; }
 
 .app-shell .primary-directory-rail .nav-item[data-view="layerpulse"] .nav-label,
 .app-shell .primary-directory-rail .nav-item[data-view="prediction"] .nav-label { font-size: 14px; white-space: nowrap; }
+
+/* Quiet workbench chrome; operational details remain in their actual flows. */
+.app-shell:not(.landing-shell) .sidebar > .service-state { display: none; }
+.primary-directory-rail .nav-state { display: none !important; }
+.app-shell .primary-directory-rail .nav-item { grid-template-rows: auto; min-height: 52px; }
+.app-shell .primary-directory-rail .nav-item.active { min-height: 56px; }
+.app-shell:not(.landing-shell) .topbar-account > :not(.topbar-return-link) { display: none; }
+.app-shell:not(.landing-shell) .topbar-context { font-size: 13px; }
+.main-content:has(.clean-data-entry) > .page-header { display: none; }
+.clean-data-entry { min-height: 330px; padding: clamp(24px, 4vw, 56px); }
+.clean-data-entry > h2 { font-size: 25px; margin-bottom: 12px; }
+.clean-data-entry > p { color: var(--muted); line-height: 1.8; max-width: 36em; }
+.clean-data-entry > button { margin-top: 20px; margin-right: 12px; }

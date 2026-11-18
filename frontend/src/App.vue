@@ -57,6 +57,7 @@ import {
 } from "./api";
 import heroInterpretationCenterImage from "./assets/首屏_井震智能解释中心.jpg";
 import FloatingAssistant from "./components/assistant/FloatingAssistant.vue";
+import LocalDataUpload from "./components/workflow/LocalDataUpload.vue";
 import GaiaWorkspaceBar from "./components/workflow/GaiaWorkspaceBar.vue";
 import { isGaiaEmbedded, isLegacyGaiaEmbedded, nativeApiUrl } from "./gaiaEmbed";
 import type { AssistantTaskReference } from "./assistantTaskResult";
@@ -215,6 +216,13 @@ let activeSnapshotPersistencePendingCount = 0;
 let activeSnapshotPersistenceQueue: Promise<void> = Promise.resolve();
 let activeSnapshotReconciliationPromise: Promise<boolean> | null = null;
 const groups = ref<PathGroup[]>(createDefaultPathGroups());
+const showAdvancedInputs = ref(false);
+const standaloneUploadReady = ref(false);
+function acceptStandaloneUpload(path: string) {
+  const logs = groups.value.find(group => group.key === "logs");
+  if (logs) logs.paths = [path];
+  standaloneUploadReady.value = true;
+}
 
 const activeView = ref<ViewKey>("overview");
 let workbenchNavigationEpoch = 0;
@@ -8285,7 +8293,7 @@ onBeforeUnmount(() => {
       ]"
     >
       <div v-if="activeView !== 'overview'" :class="['topbar', { 'prediction-topbar': activeView === 'prediction' || activeView === 'layerpulse' }]">
-        <div class="topbar-context"><span>地层慧眼</span><b>/</b><strong>{{ activeView === 'visualization' && pointVisualizationTaskId ? '单任务推理模型' : currentMeta.eyebrow }}</strong></div>
+        <div class="topbar-context"><span>地层慧眼</span><b>/</b><strong>{{ activeView === 'visualization' && pointVisualizationTaskId ? '三维地层重建' : currentMeta.eyebrow }}</strong></div>
         <div class="topbar-account">
           <a v-if="isGaiaEmbedded" href="/app/#/chatbox/huiyan" target="_top" class="topbar-return-link">返回盖亚</a>
           <span :class="['topbar-status', backendStatus]"></span>
@@ -8417,28 +8425,33 @@ onBeforeUnmount(() => {
           aria-label="数据与融合步骤"
         >
           <button type="button" :class="{ active: preparationScreen === 'input' }" @click="showPreparationSourceStep">
-            <span>1</span><div><strong>数据源</strong><small>登记文件或目录</small></div>
+            <span>1</span><div><strong>数据源</strong></div>
             <em v-if="preparationResult">已完成</em>
           </button>
           <b>→</b>
           <button type="button" :disabled="!preparation" :class="{ active: preparationScreen === 'pipeline' }" @click="showPreparationPipeline()">
-            <span>2</span><div><strong>质控封存</strong><small>校验并处理阻断项</small></div>
+            <span>2</span><div><strong>质控封存</strong></div>
             <em v-if="pendingConfirmationCount">{{ pendingConfirmationCount }} 项需集中补充</em>
           </button>
           <b>→</b>
           <button type="button" :disabled="!dataSnapshotTaskId" :class="{ active: preparationScreen === 'fusion' }" @click="showPreparationFusion">
-            <span>3</span><div><strong>标定融合</strong><small>Registration · PreparedView</small></div>
+            <span>3</span><div><strong>标定融合</strong></div>
             <em v-if="preparedViewReady">已完成</em>
             <em v-else-if="formalRegistrationReady">待构建</em>
           </button>
         </section>
 
-        <section v-if="isGaiaEmbedded && preparationScreen === 'input'" class="section-panel">
+        <section v-if="preparationScreen === 'input'" class="section-panel clean-data-entry">
           <h2>上传测井数据</h2>
-          <p>点击慧眼助手输入框旁的“＋”添加 LAS 或 SEG-Y，选择工区后即可继续处理。</p>
-          <p>可从盖亚任务打开数据准备、井震标定和融合结果，并通过慧眼 AI 继续操作；模型预测需具备对应数据、权重及运行环境。</p>
+          <p v-if="isGaiaEmbedded">点击助手输入框旁的“＋”添加数据。</p>
+          <template v-else>
+            <p>导入测井文件，或让慧眼助手创建演示工区并运行三维地层重建。</p>
+            <LocalDataUpload @uploaded="acceptStandaloneUpload" />
+            <button v-if="standaloneUploadReady" class="primary-button" type="button" :disabled="preparationRunning" @click="runDataPreparation">开始质检</button>
+            <button class="text-button" type="button" :aria-expanded="showAdvancedInputs" @click="showAdvancedInputs = !showAdvancedInputs">{{ showAdvancedInputs ? '收起高级配置' : '高级数据配置' }}</button>
+          </template>
         </section>
-        <section v-else-if="preparationScreen === 'input'" class="section-panel input-stage-panel">
+        <section v-if="!isGaiaEmbedded && preparationScreen === 'input' && showAdvancedInputs" class="section-panel input-stage-panel">
           <div class="section-heading">
             <div><h2>输入数据源</h2><p>选择文件或目录；原始数据保持原位。</p></div>
             <span class="count-badge">已登记 {{ registeredCount }} 个路径</span>

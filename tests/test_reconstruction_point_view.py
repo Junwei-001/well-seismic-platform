@@ -169,3 +169,54 @@ for (const size of [[240,320],[540,170],[900,350]]) {
     result = subprocess.run(['node', '-e', runner, json.dumps(script)],
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_nine_ordered_query_strips_render_continuous_surfaces_and_sections(tmp_path):
+    import subprocess
+
+    xy = np.array([(x, y) for y in np.linspace(0, 1, 8) for x in np.linspace(0, 1, 8)])
+    xyz = np.concatenate([np.column_stack((xy, k * .15 + .04 * np.sin(xy[:, 0] * 4))) for k in range(9)])
+    values = .22 + xyz[:, 0] * .01 + xyz[:, 2] * .005
+    path = tmp_path / 'nine-layers.npz'
+    np.savez(path, query_coordinate=xyz, prediction=values)
+    html = render_query_points(path)
+    strata = json.loads(re.search(r'const strata=(.*?);', html).group(1))
+    assert len(strata['x']) == len(strata['y']) == 24
+    assert np.asarray(strata['z']).shape == (9, 24, 24)
+    assert np.isfinite(np.asarray(strata['z'])).all()
+    assert values.min() - 1e-5 <= np.min(strata['v']) <= np.max(strata['v']) <= values.max() + 1e-5
+    assert '查询点插值展示' in html and '并非新增地层识别结果' in html
+    script = html.split('<script>', 1)[1].split('</script>', 1)[0]
+    runner = r'''
+const vm=require('node:vm'),script=require('node:fs').readFileSync(0,'utf8');
+let fills=0,arcs=0,ready=0;const handlers={},noop=()=>{};
+const ctx={clearRect:()=>{fills=0;arcs=0;},beginPath:noop,closePath:noop,
+ moveTo:(x,y)=>{if(!Number.isFinite(x+y))throw Error('nonfinite');},lineTo:noop,
+ fill:()=>fills++,arc:()=>arcs++,stroke:noop,setTransform:noop,
+ measureText:s=>({width:String(s).length*7}),fillText:noop,strokeText:noop};
+const scope={dataset:{},addEventListener:noop};
+const buttons=['3d','xy','xz','yz'].map(view=>({dataset:{pointView:view},setAttribute:noop,
+ addEventListener:(e,f)=>handlers[view]=f}));
+const root={querySelectorAll:()=>buttons,querySelector:()=>scope};
+const canvas={getContext:()=>ctx,closest:()=>root,addEventListener:noop,
+ getBoundingClientRect:()=>({width:800,height:500})};
+const elements={'point-canvas':canvas};
+const document={getElementById:id=>elements[id]||(elements[id]={addEventListener:noop}),
+ dispatchEvent:e=>{if(e.type==='huiyan:point-viewer-ready')ready++;}};
+const window={addEventListener:noop,matchMedia:()=>({addEventListener:noop})};
+vm.runInNewContext(script,{document,window,CustomEvent:class{constructor(type){this.type=type;}},
+ getComputedStyle:()=>({getPropertyValue:()=> '#123456'})});
+if(fills!==1794||arcs!==0||ready!==1)throw Error('missing continuous3D surfaces '+fills);
+for(const [view,expected] of [['xy',529],['xz',184],['yz',184],['3d',1794]]){
+ handlers[view]();if(fills!==expected||arcs!==0||ready!==1)throw Error('wrongsection '+view+':'+fills);
+}
+'''
+    result = subprocess.run(['node', '-e', runner], input=script, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_large_unlayered_query_cloud_keeps_point_fallback(tmp_path):
+    path = tmp_path / 'unlayered.npz'
+    xyz = np.column_stack((np.linspace(0, 1, 80), np.linspace(0, 1, 80), np.zeros(80)))
+    np.savez(path, query_coordinate=xyz, prediction=np.linspace(.2, .3, 80))
+    assert 'const strata=null;' in render_query_points(path)
