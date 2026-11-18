@@ -160,7 +160,15 @@ function frame(){
   from[other[0]]=a?hi[other[0]]:lo[other[0]];from[other[1]]=b?hi[other[1]]:lo[other[1]];to.splice(0,3,...from);to[axis]=hi[axis];line(from,to);
  }ctx.stroke();ctx.globalAlpha=1;ctx.fillStyle=getComputedStyle(root).getPropertyValue('--p21-axis').trim();ctx.font='12px system-ui,sans-serif';
  if(strata){
-  const box=project(lo.map((v,k)=>(v+hi[k])/2));
+  const box=project(lo.map((v,k)=>(v+hi[k])/2)),occupied=[];
+  function outerLabel(text,x,y,dx,dy){
+   const width=ctx.measureText(text).width;
+   for(const shift of [0,24,-24,48,-48,72,-72]){
+    const at=labelPosition(text,x-dy*shift,y+dx*shift),rect={x:at.x,y:at.y-13,w:width,h:16};
+    if(occupied.some(r=>rect.x<r.x+r.w+4&&rect.x+rect.w+4>r.x&&rect.y<r.y+r.h+3&&rect.y+rect.h+3>r.y))continue;
+    occupied.push(rect);ctx.fillText(text,at.x,at.y);return;
+   }
+  }
   for(let axis=0;axis<3;axis++){
    const other=[0,1,2].filter(k=>k!==axis);let edge=null,score=-1;
    for(let a=0;a<2;a++)for(let b=0;b<2;b++){
@@ -172,10 +180,10 @@ function frame(){
    const dx=edge.mid.x-box.x,dy=edge.mid.y-box.y,length=Math.hypot(dx,dy)||1;
    for(const [t,point] of [[0,edge.from],[1,edge.to]]){
     const p=project(point),label=Number(point[axis]).toPrecision(3),width=ctx.measureText(label).width;
-    const at=labelPosition(label,p.x+dx/length*20-width/2,p.y+dy/length*20+4);ctx.fillText(label,at.x,at.y);
+    outerLabel(label,p.x+dx/length*20-width/2,p.y+dy/length*20+4,dx/length,dy/length);
    }
    ctx.font='bold 13px system-ui,sans-serif';
-   const at=labelPosition('XYZ'[axis],edge.mid.x+dx/length*40-4,edge.mid.y+dy/length*40+4);ctx.fillText('XYZ'[axis],at.x,at.y);ctx.font='12px system-ui,sans-serif';
+   outerLabel('XYZ'[axis],edge.mid.x+dx/length*40-4,edge.mid.y+dy/length*40+4,dx/length,dy/length);ctx.font='12px system-ui,sans-serif';
   }return;
  }
  for(let axis=0;axis<3;axis++){
