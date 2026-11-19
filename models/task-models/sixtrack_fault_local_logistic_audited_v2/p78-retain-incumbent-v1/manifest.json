@@ -1,0 +1,134 @@
+{
+  "schema_version": "well-seismic.sixtrack-model-payload.v1",
+  "model_id": "sixtrack_fault_local_logistic_audited_v2",
+  "version": "p78-retain-incumbent-v1",
+  "task_id": "fault",
+  "display_name": "六赛道断层轻量基线（P78 保留的 audited_v2 局部特征 logistic）",
+  "runner": {
+    "kind": "isolated_subprocess",
+    "worker_module": "wellseismic_sixtrack_pilot.worker.fault_logistic",
+    "python_env": "WELL_SEISMIC_SIXTRACK_PYTHON",
+    "device": "cpu"
+  },
+  "payload": [
+    {
+      "role": "portable_coefficients",
+      "path": "payload/audited_v2_model_portable.json",
+      "size": 894,
+      "sha256": "7048f33ea16acf87fdf00b8252d33bc306c96639e7efba3473b03b946238b9f2",
+      "source": {
+        "project": "师弟-军伟的比赛-2693e5",
+        "commit": "81442731186814893ca53d09654461c8f2242927",
+        "path": "_pipelines/02_task_datasets/fault/_outputs/p30_3d_dev_gate/audited_v2_model_portable.json",
+        "sha256": "7048f33ea16acf87fdf00b8252d33bc306c96639e7efba3473b03b946238b9f2"
+      }
+    },
+    {
+      "role": "training_metrics",
+      "path": "payload/baseline_metrics.json",
+      "size": 4772,
+      "sha256": "0d0e3093da01eee7203c7afcd9b49667c25ebef49b40f6e7ef554c423768c631",
+      "source": {
+        "project": "师弟-军伟的比赛-2693e5",
+        "commit": "81442731186814893ca53d09654461c8f2242927",
+        "path": "_pipelines/02_task_datasets/fault/_outputs/runs/audited_v2/baseline_metrics.json",
+        "sha256": "0d0e3093da01eee7203c7afcd9b49667c25ebef49b40f6e7ef554c423768c631"
+      }
+    }
+  ],
+  "code_provenance": [
+    {
+      "project": "师弟-军伟的比赛-2693e5",
+      "commit": "81442731186814893ca53d09654461c8f2242927",
+      "path": "_models/fault/fault_local_logistic.py",
+      "sha256": "04076447bfe8873be2948bfdfcab8debfc257ed8af33f71b1ffbedb393cc9789",
+      "used_for": "_features verbatim; decision_batch/predict_batch arithmetic"
+    },
+    {
+      "project": "师弟-军伟的比赛-2693e5",
+      "commit": "81442731186814893ca53d09654461c8f2242927",
+      "path": "_pipelines/02_task_datasets/fault/fault_p30_3d_dev_gate_st10010.py",
+      "sha256": "b85f8c0c660ad04e511f757bc83c4a9683266da0dedf4c3236eee54675538080",
+      "used_for": "INLINE_3D/CROSSLINE_3D trace map and raw box reader"
+    }
+  ],
+  "evidence": {
+    "confirmation_task": "P78 ①断层稳定冠军确认",
+    "protocol": {
+      "project": "师弟-军伟的比赛-2693e5",
+      "commit": "81442731186814893ca53d09654461c8f2242927",
+      "path": "_code/gaia_preflight/fault_champion_confirmation.protocol.v1.json",
+      "sha256": "67ec23f991adb176dbe3d43dcee075f579dceb88ba27fafce3ae97b39c475c5c"
+    },
+    "verifier": {
+      "project": "师弟-军伟的比赛-2693e5",
+      "commit": "81442731186814893ca53d09654461c8f2242927",
+      "path": "_pipelines/02_task_datasets/fault/_outputs/p78_fault_champion_confirmation/independent_verification.json",
+      "sha256": "a2435ccfe4c77b642be613224933cc3c307650e00def9ec083218ac2c0cb3ca7",
+      "status": "VERIFIED_RETAIN_INCUMBENT",
+      "stable_champion": null,
+      "operational_reference": "fault_local_logistic_audited_v2",
+      "promotion_allowed": false,
+      "development_only": true
+    },
+    "parity_reference": {
+      "project": "师弟-军伟的比赛-2693e5",
+      "commit": "81442731186814893ca53d09654461c8f2242927",
+      "path": "_pipelines/02_task_datasets/fault/_outputs/p78_fault_champion_confirmation/probabilities/fault_local_logistic_audited_v2.npz",
+      "sha256": "d472247973ea71d3ed4f424b6bbcebc3efa9445349e1abf81803330d4365f29a",
+      "array": "probability",
+      "box": {
+        "inline_range": [
+          10095,
+          10235
+        ],
+        "crossline_range": [
+          2175,
+          2350
+        ],
+        "sample_range": [
+          605,
+          785
+        ]
+      },
+      "segy": "Volve ST10010ZC11_PZ_PSDM_KIRCH_FULL_T.MIG_FIN.POST_STACK.3D.JS-017536.segy",
+      "tolerance_max_abs": 1e-06
+    }
+  },
+  "license": {
+    "weights": "unverified",
+    "code": "unverified",
+    "training_data": "unverified (Volve public release; licence text not checked in this package)"
+  },
+  "input_contract": {
+    "source": "one post-stack 3D SEG-Y (.sgy/.segy), read in place and never modified",
+    "trace_addressing": "INLINE_3D / CROSSLINE_3D trace headers (segyio ignore_geometry=True)",
+    "axis_order": [
+      "Z",
+      "INLINE",
+      "CROSSLINE"
+    ],
+    "amplitude": "raw float32, no normalisation at inference — this reproduces the P78 operational reference (predict_baseline_volume on raw ST10010). Training used z-scored ST0202R08 patches (mean -3.03e-06, std 0.02794), so raw ST10010 amplitudes are already outside the training scale.",
+    "box": "required: options.inline_range/crossline_range/sample_range (inclusive header numbers / sample index) or crop_start/crop_size in [Z,INLINE,CROSSLINE] index space; min edge 3, max 134217728 voxels"
+  },
+  "output_contract": {
+    "fault_probability.npy": "float32 [Z,INLINE,CROSSLINE] sigmoid probability",
+    "fault_mask.npy": "uint8 probability >= threshold (default 0.4505760073661804, validation_max_f1 from baseline_metrics.json)",
+    "grid.json": "header coordinates of the box"
+  },
+  "applicability": {
+    "trained_on": "Volve ST0202R08 PSDM full-offset stack, z-score normalised 33×65 inline patches (baseline_metrics.json / build_summary.json)",
+    "domain": "development-only. Inference follows the P78 reference exactly: raw (un-normalised) ST10010 amplitudes, i.e. a different survey and amplitude scale than training; the 0.4506 threshold was chosen on z-scored ST0202 validation data, which is why ~79% of the P30 box is masked positive. Any other survey is further out of domain.",
+    "known_quality": "audited_v2 held-out test F1≈0.0155, precision≈0.0078, recall≈0.90 at the default threshold — a lightweight baseline, not a production fault detector"
+  },
+  "claim_boundary": "轻量基线/仅开发集验证：P78 未产生稳定冠军（SwinUNETR 阈值稳定门未过、权重未保存），因此保留 audited_v2 作为 operational reference。不宣称 frozen-test 泛化，不宣称生产级断层识别。",
+  "advanced_options": [
+    {
+      "id": "neural_fault_model",
+      "status": "not_enabled",
+      "summary": "SwinUNETR 等神经断层模型：P78 排名第一但阈值稳定门未过、权重未保存。",
+      "how_to_request": "询问“如何变强/提升精度”时告知：需要作为独立训练任务立项（本扩展包不重训、不带训练代码）。"
+    }
+  ],
+  "submission_channel": "api_only: POST /api/v1/prediction/tasks with seismic_path + explicit box; the unchanged frontend workbench submits snapshot-bound requests, which this extension rejects with 422"
+}

@@ -1,0 +1,109 @@
+{
+  "schema_version": "well-seismic.p81-recovery-source-lock.v1",
+  "source_sha256": {
+    "_code/dataset_io.py": "0da5e0eac71a8e33aa36e25c55bd49359db007959025f6269781702929e82751",
+    "_code/ml_framework/__init__.py": "7b17817ad716ee86a94eb90b43205a0ea766cbe7eeb264776cc03e10b15a3fc2",
+    "_code/ml_framework/artifacts.py": "3f481e41c871c5f01fd09b28f79cfb9f7bd7ea36b5d8fb6916a9eeec1a1234e4",
+    "_code/ml_framework/checkpoint.py": "18d28ffb0ba0ee0a7463b895dae0423d47233df1bc2f346a3bc6e602221906e9",
+    "_code/ml_framework/contracts.py": "18a5065bb45e790d24487a928a8802f85f8e8821ba1f5226b6484296fe13a139",
+    "_code/ml_framework/cv.py": "aebddbb295b8519b58d86bd1f1ceee3971254a640b2d84642bb6ca1747f34040",
+    "_code/ml_framework/hpo.py": "68b62d7a60a2f2db85c38e05a74c2036b214d484c2bdcba569b23933194818bb",
+    "_code/ml_framework/lifecycle.py": "8dcfbf87d0383f8dc810aa20602d37880bec34acee7003fffb61fdf7e3765a12",
+    "_code/ml_framework/model_discovery.py": "e470ef15cfe4741859f63eb6e761ec9362cc672f6a5b121b650e5609f9a76c70",
+    "_code/ml_framework/preprocess.py": "9ec2b992db430586c79dba9f67d3ed912a23dfc6ab97750ed69cabebe9c54c5e",
+    "_code/ml_framework/reduction.py": "c4358d5224f0c32e4e6af176d58bd0485683573437f512d60e2725ad9299f9b6",
+    "_code/ml_framework/run_layout.py": "000da0e76d58b2a4db3389d66f429779f3388d43fd942849960503928b645900",
+    "_code/ml_framework/seeding.py": "9b6303439f45966aa700d7ffb862df6ecbbb4d4dbb90a98e520bcaa7c73a0c07",
+    "_code/ml_framework/splits.py": "599169f42d45693842e1f290192b7f4dc167d65269a523350b96c0dbe627de09",
+    "_code/ml_framework/trainer.py": "9852f114f636f8fd58699de0fd4e9fdc2ad352db5c697ef5c63561108506b73e",
+    "_models/__init__.py": "820f8833c031ad4759d480657c27d765486f99f4e113664bbdee822ce21860db",
+    "_models/facies/__init__.py": "c004c4f2dc0eedd76e1bba3f402c803c09e1d533ce3e57e36f49fdef7b47e29c",
+    "_models/facies/_p5_common.py": "cb35ecf13f05faa81edfb2a371497688239c656b2ab62749385e6911a0f28b56",
+    "_models/facies/p5_sources.json": "1a301d6e5764e73bf55719c54eb384de9efb14f7932beb4574cfd537896a8b97",
+    "_models/facies/sam2_semantic.py": "cd2d3c227a1af03b9809af5ef2c849789ffad3c978ef8a448d0eb62d2319fc2d",
+    "_models/facies/smp_deeplabv3plus_r18.py": "1f16e9d8c221eeecff613d45ab901d2798d3567611117e51407c70a087179bdd",
+    "_models/facies/smp_fpn_r18.py": "3eb40bae400d9eaf2ebb1d6e4109f8ba03607a527cbd09254f08346eb14b4178",
+    "_models/gaia_dagt/__init__.py": "70274bdd2cf6e748a65d6dc0665ce33f31e2ace4ae09de286afa35146fe1c412",
+    "_models/gaia_dagt/adapter.py": "fbee4b93ea51318b62b9670991f2b38ee00b1cbd7fb0caf86719b195f7031005",
+    "_models/gaia_dagt/agents.py": "d6f021593f5742326fdb14e2b7b428a29399c20e33313e5dda2d90035d1ea8b7",
+    "_models/gaia_dagt/contracts.py": "70a8f302a246b61214ebc2e8acd6322e0fa0cfd2d5985830643c29da221bbb1b",
+    "_models/gaia_dagt/controls.py": "02eb602c9473095904e2083ef2683bccb98bcff2ac8764443c4128fc457b0cd4",
+    "_models/gaia_dagt/foundation.py": "f92d4f5f3124bf2cdb43c08f3e020440ccd88948bfba6b6ebf487c6b5325912d",
+    "_models/gaia_dagt/foundation_prompts.py": "9ccaced44f0bfdc68dd3febbd502e9bd4e3c678f135798175d4ab34d195b59d2",
+    "_models/gaia_dagt/foundation_runtime.py": "208dfb65137bb6d3d847ed78df31d4d7249254d5b7121427dc4291d87e44f41f",
+    "_models/gaia_dagt/source_lock.py": "44d6085e02727e6c62be775b90c6e69d6f0e7d5d7a21f97adeb2741079a31128",
+    "_pipelines/02_task_datasets/facies/_outputs/p81_facies_champion_confirmation/input/facies_f3_split_manifest.json": "3196dace67bbc6ab040271b5e11bfc014bc22656de549dcda0fc98f948a17efa",
+    "_pipelines/02_task_datasets/facies/_outputs/p81_facies_champion_confirmation/input/facies_penobscot_split_manifest.json": "98ae521950056717673048d18ab406219c4b20ab4044b69fa5759f86d1f9ede4",
+    "_pipelines/02_task_datasets/facies/_outputs/p81_facies_champion_confirmation/summary.json": "80bc357658235911fd87325869ebbe6c36bb0e476bad6cf518d4c94613438b46",
+    "_pipelines/02_task_datasets/facies/facies_p5_stage2.py": "a9db5b114d3d390c1c48ce99348218d59c4b0c4603f4c576e337da82bfa2de9f",
+    "_pipelines/02_task_datasets/facies/facies_p5_stage3.py": "b8f58cdbffcd759af0b5a087a9b1885d21f6e0e6982c3a0ceec7d9031350ff20",
+    "_pipelines/02_task_datasets/facies/facies_p81_champion_confirmation.py": "b480674bf22bd5cf4907b48aebc5843122f6210e9ce56480d496e443b654eca1",
+    "_pipelines/02_task_datasets/facies/p11_residual_fusion.py": "94f608f609a7b09f34566b6a83e3424e48d151bb329f51b584009aad5b396a95",
+    "_pipelines/02_task_datasets/facies/p12_repair_v1.py": "792e649e76ef445e0b2b27de047411d8037f40914ee7a3a2d147d6b3de47fa9a",
+    "_pipelines/02_task_datasets/facies/p13_cross_attention.py": "32e0320402e456946ce32caa7a7f79cb02d37102bd83eea214225c439da9d3d3",
+    "_pipelines/02_task_datasets/facies/p28_agentic_optimization.py": "cd8d2d435cff6fc3d090b79d23ac7283ad60495b52d2b30390ad30dd91a69535",
+    "_pipelines/02_task_datasets/facies/p4_data.py": "4188aa62ff2b2ba01bc5cee6b7cb7e599a80011504eedea6eb13f6f46571668a",
+    "_pipelines/02_task_datasets/facies/p4_experiment.py": "5d5c826e21aa58cccf8ce789db668cf27846d33877cd1dfa7d877601150f5f90",
+    "_pipelines/02_task_datasets/facies/p4_losses.py": "73eb10d5be78b3d22e9e1f7d0b0e46260a9a2bec6f5e6ac7e0d10484d67f7e03",
+    "_pipelines/02_task_datasets/facies/p4_metrics.py": "8fd3462341ab9dd7d10b33156576b4c1e7dd88a6cbd4c5b9a1b523f81d7d0c86",
+    "_pipelines/02_task_datasets/facies/p4_spatial.py": "d2bcbab80144ea368845ea777645b84f576dac0ec33d4e4fed4467ed0ec6c2df",
+    "_pipelines/02_task_datasets/facies/p4_tasks.py": "ab7d1ae08d1802eec9ce076624c5b551614299ffb3b69823af1930b2e7fa57d4",
+    "_pipelines/02_task_datasets/facies/p4_training.py": "570a6a94f0eb3ff452d4846ee13b9ab3946d77da63d7e584aaa87924060edc4f",
+    "_pipelines/02_task_datasets/facies/p4_visualize.py": "930a003a82fe73fdc9772a618204808e8d3d06f890b13468e3f2bc970c885699",
+    "_pipelines/02_task_datasets/facies/pipeline_contract.py": "063162e176d1530c7279ff883f5ef7296eb4c39a921cbd76bb97161ad3762fa1",
+    "_models/gaia_dagt/foundation_routes.v1.json": "9c82dd9bc0fe277c6782a0c65212b5e5b2ce83f18fe81a134c1d560ab8945b52",
+    "_data/processed/facies/facies_f3/train.h5": "21862849d475e1b5c0f5d4474d9f0fe15235bbde69bfaf85a68244078174fb9b",
+    "_data/processed/facies/facies_penobscot/train.h5": "aa6e907bdc0a1dbdf1229e41252322a1b4e228d2420d92cdc8bc0305d9ef0b85",
+    "_pipelines/02_task_datasets/facies/_outputs/p81_facies_champion_confirmation/independent_verification.json": "7e8955145f26f80ddaedc960b66807b0019a29b416aa66c76ac5af9f76aecdc0",
+    "_code/gaia_preflight/six_track_model_matrix.v10.json": "baa1c4259a70b0779f2384a68a59dc7bc8b020dbdd01856eeb289a81eada3d46"
+  },
+  "sam2_source_revision": "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+  "sam2_checkpoint_sha256": "a2345aede8715ab1d5d31b4a509fb160c5a4af1970f199d9054ccfb746c004c5",
+  "runtime_versions": {
+    "torch": "2.12.1+cu130",
+    "numpy": "2.4.4",
+    "segmentation-models-pytorch": "0.5.0",
+    "torchvision": "0.27.1+cu130",
+    "h5py": "3.16.0",
+    "timm": "1.0.28"
+  },
+  "tasks": [
+    "facies_f3",
+    "facies_penobscot"
+  ],
+  "folds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "seeds": [
+    1867973658,
+    2137841944,
+    3902865753
+  ],
+  "arm": "sam2_cross_attention_pretrained_p32",
+  "configs": {
+    "facies_f3": {
+      "fusion_scale_initial": 0.8,
+      "fusion_lr": 0.0005,
+      "dice_weight": 0.75
+    },
+    "facies_penobscot": {
+      "fusion_scale_initial": 0.2,
+      "fusion_lr": 0.0002,
+      "dice_weight": 0.25
+    }
+  },
+  "label_versions": {
+    "facies_f3": "f3-zenodo-1471548-ids-0-9-v1",
+    "facies_penobscot": "penobscot-dataset-log-v3-ids-0-7-v1"
+  },
+  "num_classes": {
+    "facies_f3": 10,
+    "facies_penobscot": 8
+  },
+  "baseline_updates": 40,
+  "candidate_updates": 160
+}

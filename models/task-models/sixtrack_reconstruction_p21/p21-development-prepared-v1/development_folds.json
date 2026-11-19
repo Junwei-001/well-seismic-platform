@@ -1,0 +1,47 @@
+{
+  "schema_version": "well-seismic.p21-development-folds.v1",
+  "folds": [
+    {
+      "fold_id": 0,
+      "payload_role": "prepared_fold_0",
+      "query_rows": 2048,
+      "train_rows": 512,
+      "train_indices_sha256": "0c8061f87414845531c17039d027fe8e6d257765b7865d88547459c9c909d949",
+      "query_indices_sha256": "47e3ee4c7f5e6c0c4eeb0a3542cfb5df6101282233e664fbfc5bde9cb2b79a5e"
+    },
+    {
+      "fold_id": 1,
+      "payload_role": "prepared_fold_1",
+      "query_rows": 2048,
+      "train_rows": 512,
+      "train_indices_sha256": "dedece511a4e6a9f7a297be74a1507f0506dc7c87d8e02196cf543c3a6326eba",
+      "query_indices_sha256": "765ca27700aa91be7b7a2df35870a98cc88617e07de6ebf3274c129c94361e56"
+    },
+    {
+      "fold_id": 2,
+      "payload_role": "prepared_fold_2",
+      "query_rows": 2048,
+      "train_rows": 512,
+      "train_indices_sha256": "36792e7114a63a06a8dd0e21cca5e85d6eae51bee29807f1ad68313cc90e21a1",
+      "query_indices_sha256": "95ad41f26f144743281f7dd7c52c0ab73cbefd0de9f2912c225a0707d949e726"
+    },
+    {
+      "fold_id": 3,
+      "payload_role": "prepared_fold_3",
+      "query_rows": 2048,
+      "train_rows": 512,
+      "train_indices_sha256": "a0ac593fa2cf72aaf5590b600f4ffb5aac5b573a80e4506846bfa2e948018d1e",
+      "query_indices_sha256": "ceedcefde798e34a96a0512301f308c3fde98912f35011874cfb27604a8ccda9"
+    },
+    {
+      "fold_id": 4,
+      "payload_role": "prepared_fold_4",
+      "query_rows": 2048,
+      "train_rows": 512,
+      "train_indices_sha256": "559cb936992f0420fc1c7ef5a1bdd0406d70a8b8f3bf24598de29949c0de8d98",
+      "query_indices_sha256": "04f9027ccc136273612bb8c33a473bbb796b6b0877018da694509767faefeb5b"
+    }
+  ],
+  "query_targets_present": false,
+  "new_area_supported": false
+}

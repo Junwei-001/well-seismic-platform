@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from math import isfinite
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -562,8 +563,11 @@ class BatchIssueActionRequest(BaseModel):
 
 
 class AssistantChatRequest(BaseModel):
+    project_id: str | None = Field(default=None, pattern=r"^hp_[0-9a-f]{32}$")
+    request_id: UUID | None = None
     message: str = Field(min_length=1, max_length=2000)
     task_id: str | None = None
+    conversation_id: UUID | None = None
 
 
 class TransformationActivationRequest(BaseModel):

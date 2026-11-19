@@ -1,0 +1,16 @@
+# Isolated model interpreter for the six-track workers (WELL_SEISMIC_SIXTRACK_PYTHON).
+# Pinned to the P67 TabICL runtime (torch distribution 2.13.0, numpy 2.4.6) so the
+# CPU replay stays comparable; the workers force CUDA_VISIBLE_DEVICES="".
+torch==2.13.0
+numpy==2.4.6
+scipy==1.17.1
+scikit-learn==1.7.2
+tabicl==2.1.1
+einops==0.8.2
+huggingface_hub==0.36.2
+psutil==7.2.2
+joblib==1.5.3
+threadpoolctl==3.6.0
+tqdm
+segyio==1.9.14
+pykrige==1.7.3

@@ -1,0 +1,20 @@
+{
+  "point_shapes": {
+    "query_coordinate": [
+      2048,
+      3
+    ],
+    "prediction": [
+      2048
+    ]
+  },
+  "version_file_names": [
+    "r/1d07024b93e46907.json",
+    "r/9af72e6da619eaf7.json",
+    "r/ea5190e8855837ff.npz",
+    "r/f77655206c62df62.npz",
+    "results/task.json"
+  ],
+  "version_has_hashes": true,
+  "other_owner_view_status": 404
+}

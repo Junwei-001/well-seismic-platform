@@ -1,15 +1,15 @@
 :root {
   --sidebar-width: 260px;
   --topbar-height: 68px;
-  --ink: #152234;
+  --ink: #0f172a;
   --text: #344257;
-  --muted: #6f7e91;
-  --line: #dfe5ec;
-  --line-soft: #e9edf2;
-  --canvas: #f3f6f9;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --line-soft: #e2e8f0;
+  --canvas: #f8fafc;
   --panel: #ffffff;
-  --primary: #1677e8;
-  --primary-hover: #0f68d3;
+  --primary: #1668dc;
+  --primary-hover: #1557b8;
   --primary-soft: #edf5ff;
   --success: #159b72;
   --warning: #c88420;
@@ -28,6 +28,12 @@ body {
 .app-shell {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
+
+html:has(.gaia-embedded), body:has(.gaia-embedded), #app:has(.gaia-embedded) { min-width: 0; }
+.app-shell.gaia-embedded { min-width: 0; }
+.app-shell.gaia-embedded:not(.landing-shell) { grid-template-columns: 236px minmax(0, 1fr); }
+.app-shell.gaia-embedded .topbar { position: static; width: auto; margin-bottom: 16px; }
+.app-shell.gaia-embedded .main-content { min-width: 0; margin-top: 0; padding-top: 20px; }
 
 .sidebar {
   padding: 0 15px 18px;
@@ -1744,6 +1750,78 @@ th { color: #526176; font-weight: 680; }
   .knowledge-orbit { grid-template-columns: minmax(0, 1fr); }
 }
 
+.assistant-drawer-launcher {
+  position: fixed;
+  z-index: 80;
+  right: 24px;
+  bottom: 24px;
+  padding: 12px 18px;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  background: #176c75;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgb(17 62 81 / 24%);
+  cursor: pointer;
+}
+.assistant-drawer-launcher:hover { background: #125b65; }
+.assistant-drawer-launcher:focus-visible,
+.assistant-drawer-toolbar button:focus-visible { outline: 3px solid #e4b85e; outline-offset: 3px; }
+
+.assistant-drawer {
+  position: fixed;
+  z-index: 81;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  width: min(480px, calc(100vw - 24px));
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #c8dce2;
+  border-radius: 18px;
+  box-shadow: 0 20px 65px rgb(14 49 72 / 28%);
+}
+.assistant-drawer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  color: #345267;
+  background: #f4f9fa;
+  border-bottom: 1px solid #dce9ed;
+}
+.assistant-drawer-toolbar button {
+  padding: 5px 10px;
+  color: #176c75;
+  font: inherit;
+  background: #fff;
+  border: 1px solid #c8dfe1;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.assistant-drawer .strata-assistant-workspace {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.assistant-drawer .strata-assistant-header { grid-template-columns: 42px minmax(0, 1fr); gap: 10px; padding: 12px 14px; }
+.assistant-drawer .strata-assistant-avatar { width: 42px; height: 42px; }
+.assistant-drawer .strata-assistant-avatar svg { width: 34px; height: 34px; }
+.assistant-drawer .strata-assistant-identity h1 { font-size: 20px; }
+.assistant-drawer .strata-assistant-identity strong,
+.assistant-drawer .strata-assistant-identity p { display: none; }
+.assistant-drawer .strata-assistant-connection { grid-column: 1 / -1; min-width: 0; padding: 6px 10px; }
+.assistant-drawer .strata-assistant-context { align-items: flex-start; flex-direction: column; gap: 4px; padding: 8px 14px; }
+.assistant-drawer .strata-assistant-context nav { justify-content: flex-start; }
+.assistant-drawer .strata-assistant-messages { padding: 16px 12px; }
+.assistant-drawer .strata-assistant-messages article { max-width: 98%; }
+.assistant-drawer .strata-assistant-prompts { display: none; }
+.assistant-drawer .strata-assistant-composer { grid-template-columns: minmax(0, 1fr) 68px; padding: 10px; }
+
 @media (prefers-reduced-motion: reduce) {
   .directory-rail,
   .prediction-directory-list { scroll-behavior: auto; }
@@ -1753,3 +1831,194 @@ th { color: #526176; font-weight: 680; }
   .knowledge-orbit-node-surface,
   .knowledge-orbit-node-mark i { animation: none; transition: none; }
 }
+
+/* Keep the embedded rail readable at the width of the host Gaia iframe. */
+.app-shell.gaia-embedded .sidebar {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+.app-shell.gaia-embedded .brand,
+.app-shell.gaia-embedded .service-state { flex: 0 0 auto; }
+.app-shell.gaia-embedded .directory-rail { min-height: 0; overflow-y: auto; padding: 8px 2px 24px; }
+.app-shell .primary-directory-rail .nav-item {
+  grid-template-columns: 23px minmax(0, 1fr) 11px;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  padding: 9px 8px;
+  row-gap: 2px;
+  align-items: center;
+}
+.app-shell .primary-directory-rail .nav-icon { grid-column: 1; grid-row: 1 / 3; }
+.app-shell .primary-directory-rail .nav-label {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  overflow: visible;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: normal;
+}
+.app-shell .primary-directory-rail .nav-state {
+  display: block;
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell .primary-directory-rail .nav-chevron { grid-column: 3; grid-row: 1 / 3; }
+
+/* Shared embedded scientific viewer; its source keeps the workbench rails intact. */
+.point-visualization-panel {
+  display: flex;
+  min-width: 0;
+  min-height: min(680px, 75dvh);
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+}
+.point-visualization-frame {
+  display: block;
+  width: 100%;
+  height: max(680px, calc(100dvh - 170px));
+  min-height: 680px;
+  border: 0;
+}
+@media (max-width: 700px) {
+  .point-visualization-panel { min-height: 540px; }
+  .point-visualization-frame { height: 70dvh; min-height: 540px; }
+}
+
+/* In a Gaia iframe the assistant occupies its own column; it must not cover
+   the workbench. Narrower screens retain the compact overlay drawer. */
+@media (min-width: 900px) {
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) {
+    grid-template-columns: 236px minmax(0, 1fr) clamp(340px, 26vw, 372px);
+    align-items: start;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .sidebar { grid-column: 1; }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .main-content {
+    grid-column: 2;
+    min-width: 0;
+    padding-right: 16px;
+    padding-left: 16px;
+    container: huiyan-main / inline-size;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) > .assistant-drawer {
+    position: sticky;
+    top: 0;
+    right: auto;
+    bottom: auto;
+    grid-column: 3;
+    width: auto;
+    height: 100dvh;
+    min-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-shell.gaia-embedded.assistant-open:not(.landing-shell) .assistant-drawer .strata-assistant-header { padding: 11px 10px; }
+}
+@media (min-width: 1100px) {
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) {
+    grid-template-columns: 236px minmax(0, 1fr) clamp(340px, 26vw, 372px);
+    align-items: start;
+  }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .sidebar { grid-column: 1; }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .main-content {
+    grid-column: 2;
+    min-width: 0;
+    padding-right: 16px;
+    padding-left: 16px;
+    container: huiyan-main / inline-size;
+  }
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .assistant-drawer {
+    position: sticky;
+    top: 0;
+    right: auto;
+    bottom: auto;
+    grid-column: 3;
+    width: auto;
+    height: 100dvh;
+    min-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+@container huiyan-main (max-width: 700px) {
+  .preparation-navigation.three-stage {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .preparation-navigation.three-stage > b { display: none; }
+  .preparation-navigation.three-stage > button {
+    min-width: 0;
+    gap: 5px;
+    flex-wrap: wrap;
+    align-content: start;
+    padding: 8px 4px;
+  }
+  .preparation-navigation.three-stage button div { min-width: 0; }
+  .preparation-navigation.three-stage button strong,
+  .preparation-navigation.three-stage button small { white-space: normal; overflow-wrap: anywhere; }
+  .input-stage-panel { min-width: 0; padding: 16px; }
+  .section-panel { min-width: 0; }
+  .page-header h1 { white-space: normal; overflow-wrap: anywhere; }
+  .point-visualization-frame { min-width: 0; }
+}
+
+.app-shell.gaia-embedded .service-retry { flex: 0 0 auto; white-space: nowrap; }
+@media (min-width: 1100px) {
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) .topbar {
+    position: sticky;
+    top: 0;
+    left: auto;
+    right: auto;
+    width: auto;
+    margin-bottom: 16px;
+  }
+}
+
+.topbar-return-link { color: #52697f; font-size: 12px; padding: 4px 8px; border: 1px solid var(--line-soft); border-radius: 999px; text-decoration: none; white-space: nowrap; flex: 0 0 auto; }
+.topbar-return-link:hover { color: #1766c6; background: #edf5ff; }
+.topbar-context > span, .topbar-account > span { white-space: nowrap; }
+@media (min-width: 1100px) {
+  .app-shell.assistant-open:not(.gaia-embedded):not(.landing-shell) > .main-content { margin-top: 0; padding-top: 20px; }
+}
+
+.app-shell .primary-directory-rail .nav-item[data-view="layerpulse"] .nav-label,
+.app-shell .primary-directory-rail .nav-item[data-view="prediction"] .nav-label { font-size: 14px; white-space: nowrap; }
+
+/* Quiet workbench chrome; operational details remain in their actual flows. */
+.app-shell:not(.landing-shell) .sidebar > .service-state { display: none; }
+.primary-directory-rail .nav-state { display: none !important; }
+.app-shell .primary-directory-rail .nav-item { grid-template-rows: auto; min-height: 52px; }
+.app-shell .primary-directory-rail .nav-item.active { min-height: 56px; }
+.app-shell:not(.landing-shell) .topbar-account > :not(.topbar-return-link) { display: none; }
+.app-shell:not(.landing-shell) .topbar-context { font-size: 13px; }
+.main-content:has(.clean-data-entry) > .page-header { display: none; }
+.clean-data-entry { min-height: 330px; padding: clamp(24px, 4vw, 56px); }
+.clean-data-entry > h2 { font-size: 25px; margin-bottom: 12px; }
+.clean-data-entry > p { color: var(--muted); line-height: 1.8; max-width: 36em; }
+.clean-data-entry > button { margin-top: 20px; margin-right: 12px; }
+
+/* One blue/slate workbench, without diagnostic chrome. */
+.brand span { display: none !important; }
+.app-shell:not(.landing-shell) .topbar { display: none !important; }
+.app-shell:not(.landing-shell) .main-content { min-height: 100dvh; margin-top: 0 !important; padding: 20px 24px 28px !important; border-radius: 0; border-top: 0; background: #f8fafc; }
+.app-shell .primary-directory-rail .nav-item.active { color: #1668dc; background: #eff6ff; border-color: #dbeafe; box-shadow: none; }
+.app-shell .primary-directory-rail .nav-item.active .nav-icon { color: #1668dc; }
+.point-visualization-panel { border: 0; box-shadow: none; border-radius: 0; background: transparent; }
+.point-visualization-frame { height: calc(100dvh - 40px); min-height: 760px; }
+
+/* Center the scientific viewport as a single card in the middle pane. */
+.app-shell:not(.landing-shell) .main-content.visualization-content { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100dvh; padding: 20px 24px !important; }
+.main-content.visualization-content .point-visualization-panel { width: 100%; max-width: 100%; margin: auto 0; }
+.main-content.visualization-content .point-visualization-frame { height: clamp(620px, calc(100dvh - 44px), 840px); min-height: 620px; }

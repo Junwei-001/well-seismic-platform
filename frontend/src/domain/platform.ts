@@ -28,6 +28,7 @@ export interface PathGroup {
 }
 
 interface NavigationItem {
+  sidebarLabel?: string;
   id: ViewKey;
   label: string;
   section: "project" | "workflow" | "system";
@@ -50,8 +51,8 @@ interface ConventionalCurveGroup {
 
 export const navigation: NavigationItem[] = [
   { id: "preparation", label: "数据与融合", section: "workflow" },
-  { id: "layerpulse", label: "LayerPulse 多模态融合基础模型", section: "workflow" },
-  { id: "prediction", label: "单任务推理模型（共享井震融合基座）", section: "workflow" },
+  { id: "layerpulse", label: "LayerPulse 多模态融合基础模型", section: "workflow", sidebarLabel: "LayerPulse 多模态基座" },
+  { id: "prediction", label: "单任务推理模型（共享井震融合基座）", section: "workflow", sidebarLabel: "单任务推理模型" },
   { id: "models", label: "模型中心", section: "system" },
   { id: "settings", label: "平台设置", section: "system" },
   { id: "assistant", label: "慧眼AI", section: "system" },
